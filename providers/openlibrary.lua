@@ -1,7 +1,14 @@
 local HTTP = require("lib/http")
 local U = require("lib/util")
+local Version = require("lib/version")
 
 local P = { id = "openlibrary", label = "Open Library" }
+
+local function request(url)
+    return HTTP.json("GET", url, {
+        ["User-Agent"] = Version.user_agent(),
+    })
+end
 
 function P.search(query)
     local args = {
@@ -15,7 +22,7 @@ function P.search(query)
         if U.nonempty(query.title) then table.insert(args, "title=" .. U.urlencode(query.title)) end
         if U.nonempty(query.author) then table.insert(args, "author=" .. U.urlencode(query.author)) end
     end
-    local res, err = HTTP.json("GET", "https://openlibrary.org/search.json?" .. table.concat(args, "&"))
+    local res, err = request("https://openlibrary.org/search.json?" .. table.concat(args, "&"))
     if not res then return {}, err end
     if res.code ~= 200 then return {}, "HTTP " .. tostring(res.code) end
     local out = {}
@@ -37,6 +44,13 @@ function P.search(query)
         })
     end
     return out
+end
+
+function P.test()
+    local res, err = request("https://openlibrary.org/search.json?q=test&limit=1&fields=key")
+    if not res then return false, err end
+    if res.code ~= 200 then return false, "HTTP " .. tostring(res.code) end
+    return true, "Reachable"
 end
 
 return P
