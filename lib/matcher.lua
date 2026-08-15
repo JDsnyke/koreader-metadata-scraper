@@ -1,6 +1,10 @@
 local U = require("lib/util")
 local M = {}
 
+local function canonical_result_isbn(r)
+    return U.canonical_isbn(r.isbn13) or U.canonical_isbn(r.isbn10)
+end
+
 local function isbn_matches(query, r)
     local q = U.canonical_isbn(query.isbn)
     if not q then return false end
@@ -16,10 +20,15 @@ function M.score(query, r)
     r = type(r) == "table" and r or {}
 
     local reasons = {}
+    local query_isbn = U.canonical_isbn(query.isbn)
+    local result_isbn = canonical_result_isbn(r)
     if isbn_matches(query, r) then
         add_reason(reasons, "ISBN exact")
         return 100, reasons
     end
+
+    local isbn_conflict = query_isbn and result_isbn and query_isbn ~= result_isbn
+    if isbn_conflict then add_reason(reasons, "ISBN conflict") end
 
     local qtitle = U.normalize(query.title)
     local rtitle = U.normalize(r.title)
@@ -50,13 +59,25 @@ function M.score(query, r)
         else
             local similarity = U.token_similarity(qa, ra)
             score = score + math.floor(similarity * 20)
-            if similarity >= 0.6 then add_reason(reasons, "author similar") end
+            if similarity >= 0.6 then
+                add_reason(reasons, "author similar")
+            elseif similarity < 0.2 then
+                score = math.max(0, score - 25)
+                add_reason(reasons, "author conflict")
+            end
         end
     end
 
-    if query.language and r.language and U.language_code(query.language) == U.language_code(r.language) then
-        score = score + 3
-        add_reason(reasons, "language")
+    if query.language and r.language then
+        local qlang = U.language_code(query.language)
+        local rlang = U.language_code(r.language)
+        if qlang and rlang and qlang == rlang then
+            score = score + 3
+            add_reason(reasons, "language")
+        elseif qlang and rlang and qlang ~= rlang then
+            score = math.max(0, score - 12)
+            add_reason(reasons, "language conflict")
+        end
     end
 
     local qseries = U.normalize(query.series)
@@ -65,9 +86,15 @@ function M.score(query, r)
         if qseries == rseries then
             score = score + 4
             add_reason(reasons, "series exact")
-        elseif U.token_similarity(qseries, rseries) >= 0.75 then
-            score = score + 2
-            add_reason(reasons, "series similar")
+        else
+            local similarity = U.token_similarity(qseries, rseries)
+            if similarity >= 0.75 then
+                score = score + 2
+                add_reason(reasons, "series similar")
+            elseif similarity < 0.25 then
+                score = math.max(0, score - 8)
+                add_reason(reasons, "series conflict")
+            end
         end
     end
 
@@ -77,16 +104,24 @@ function M.score(query, r)
         if qyear == ryear then
             score = score + 2
             add_reason(reasons, "year")
+        elseif math.abs(qyear - ryear) > 5 then
+            score = math.max(0, score - 5)
+            add_reason(reasons, "year conflict")
         elseif math.abs(qyear - ryear) > 2 then
             score = math.max(0, score - 2)
         end
     end
 
+    -- A contradictory ISBN is stronger evidence than fuzzy textual agreement.
+    -- Keep the result visible for manual review, but never allow it near the
+    -- default automatic batch threshold.
+    if isbn_conflict then score = math.min(score, 35) end
+
     return math.min(99, score), reasons
 end
 
 local function dedupe_key(r)
-    local isbn = U.canonical_isbn(r.isbn13) or U.canonical_isbn(r.isbn10)
+    local isbn = canonical_result_isbn(r)
     if isbn then return "isbn:" .. isbn end
 
     local title = U.normalize(r.title)
