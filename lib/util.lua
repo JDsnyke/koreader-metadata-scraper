@@ -83,10 +83,38 @@ function M.token_similarity(a, b)
     return intersection / union
 end
 
-function M.clean_isbn(v)
+local function raw_isbn(v)
     if not v then return nil end
     local s = tostring(v):upper():gsub("[^0-9X]", "")
     if #s == 10 or #s == 13 then return s end
+end
+
+local function valid_isbn10(s)
+    if type(s) ~= "string" or #s ~= 10 or not s:match("^%d%d%d%d%d%d%d%d%d[%dX]$") then return false end
+    local sum = 0
+    for i = 1, 10 do
+        local c = s:sub(i, i)
+        local n = c == "X" and 10 or tonumber(c)
+        sum = sum + n * (11 - i)
+    end
+    return sum % 11 == 0
+end
+
+local function valid_isbn13(s)
+    if type(s) ~= "string" or #s ~= 13 or not s:match("^%d%d%d%d%d%d%d%d%d%d%d%d%d$") then return false end
+    local sum = 0
+    for i = 1, 13 do
+        local n = tonumber(s:sub(i, i)) or 0
+        sum = sum + n * (i % 2 == 0 and 3 or 1)
+    end
+    return sum % 10 == 0
+end
+
+function M.clean_isbn(v)
+    local s = raw_isbn(v)
+    if not s then return nil end
+    if #s == 10 and valid_isbn10(s) then return s end
+    if #s == 13 and valid_isbn13(s) then return s end
 end
 
 local function isbn13_from_isbn10(v)
