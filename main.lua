@@ -20,6 +20,7 @@ local Writer = require("lib/writer")
 local HTTP = require("lib/http")
 local Updater = require("lib/updater")
 local Version = require("lib/version")
+local Diagnostics = require("lib/diagnostics")
 
 local PROVIDERS = {
     hardcover = require("providers/hardcover"),
@@ -129,6 +130,7 @@ function MetadataScraper:installUpdate(release)
             text = string.format(_("Metadata Scraper %s installed.\n\nRestart KOReader to load the new version."), release.version),
         })
     else
+        Diagnostics.log("Updater", err or "Unknown update failure", self.settings)
         UIManager:show(InfoMessage:new{ text = _("Update failed.") .. "\n" .. tostring(err) })
     end
 end
@@ -160,6 +162,7 @@ function MetadataScraper:checkForUpdates(silent)
         self:saveSettings()
         if busy then UIManager:close(busy) end
         if not release then
+            Diagnostics.log("Updater", err or "Update check failed", self.settings)
             if not silent then UIManager:show(InfoMessage:new{ text = _("Update check failed.") .. "\n" .. tostring(err) }) end
             return
         end
@@ -229,14 +232,20 @@ function MetadataScraper:installZenContextHook()
 end
 
 function MetadataScraper:getRawProps(file)
-    local doc = DocumentRegistry:hasProvider(file) and DocumentRegistry:openDocument(file)
-    if not doc then return {}, {} end
-    local loaded = true
-    if doc.loadDocument then loaded = doc:loadDocument(false) end
-    local raw = loaded and (doc:getProps() or {}) or {}
-    doc:close()
-    local effective = BookInfo.extendProps(raw, file)
-    return raw, effective
+    local ok, raw, effective = pcall(function()
+        local doc = DocumentRegistry:hasProvider(file) and DocumentRegistry:openDocument(file)
+        if not doc then return {}, {} end
+        local loaded = true
+        if doc.loadDocument then loaded = doc:loadDocument(false) end
+        local props = loaded and (doc:getProps() or {}) or {}
+        doc:close()
+        return props, BookInfo.extendProps(props, file)
+    end)
+    if not ok then
+        Diagnostics.log("KOReader metadata", raw, self.settings)
+        return {}, {}
+    end
+    return raw or {}, effective or {}
 end
 
 function MetadataScraper:getCurrentFile()
@@ -380,6 +389,7 @@ function MetadataScraper:showQuickSettings()
             {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() UIManager:close(dialog); self:showSourceSelector() end }},
             {{ text = _("Providers"), align = "left", callback = function() UIManager:close(dialog); self:showProviderDialog() end }},
             {{ text = _("Test provider connections…"), align = "left", callback = function() UIManager:close(dialog); self:testProviders() end }},
+            {{ text = _("Save support diagnostics…"), align = "left", callback = function() UIManager:close(dialog); self:saveSupportDiagnostics() end }},
             {{ text = _("Metadata fields"), align = "left", callback = function() UIManager:close(dialog); self:showFieldDialog() end }},
             {{ text = _("Write mode") .. ": " .. replace, align = "left", callback = function()
                 self.settings.replace_existing = not self.settings.replace_existing; self:saveSettings()
@@ -516,12 +526,31 @@ function MetadataScraper:testProviders()
             else
                 good, detail = false, _("No diagnostic available")
             end
+            Diagnostics.log(provider.label, (good and "diagnostic OK: " or "diagnostic failed: ") .. tostring(detail or ""), self.settings)
             table.insert(lines, string.format("%s %s — %s",
                 good and "✓" or "✗", provider.label, tostring(detail or (good and _("OK") or _("Failed")))))
         end
         UIManager:close(busy)
         UIManager:show(InfoMessage:new{ text = table.concat(lines, "\n") })
     end)
+end
+
+function MetadataScraper:saveSupportDiagnostics()
+    local cache_dir = DataStorage:getDataDir() .. "/cache/metadata_scraper"
+    util.makePath(cache_dir)
+    local filepath = cache_dir .. "/support_diagnostics.txt"
+    local ok, err = Diagnostics.write_bundle(filepath, self.settings, {
+        plugin_root = PLUGIN_ROOT,
+        target = "KOReader 2026.07+",
+    })
+    if ok then
+        UIManager:show(InfoMessage:new{
+            text = _("Sanitized support diagnostics saved to:") .. "\n" .. filepath
+                .. "\n\n" .. _("API tokens, keys, Amazon secrets, credential IDs, and Partner Tags are not intentionally included."),
+        })
+    else
+        UIManager:show(InfoMessage:new{ text = _("Could not save support diagnostics.") .. "\n" .. tostring(err) })
+    end
 end
 
 function MetadataScraper:showSearchForm(file, raw, props)
@@ -603,6 +632,7 @@ function MetadataScraper:searchProviders(query)
                 counts[id] = 0
                 errors[id] = ok and (err or "Unknown error") or tostring(list)
             end
+            if errors[id] then Diagnostics.log(PROVIDERS[id].label, errors[id], self.settings) end
         end
     end
     Matcher.rank(query, results, self:sourcePriority())
@@ -676,23 +706,34 @@ function MetadataScraper:recordLink(file, r)
 end
 
 function MetadataScraper:applyResult(file, raw, result, quiet)
-    local ok = Writer.write(file, raw, result, self.settings.fields, self.settings.replace_existing)
+    local ok, write_err = Writer.write(file, raw, result, self.settings.fields, self.settings.replace_existing)
     local cover_ok, cover_err
     if ok and self.settings.download_cover and result.cover_url then
         local cache_dir = DataStorage:getDataDir() .. "/cache/metadata_scraper"
         util.makePath(cache_dir)
         local ext = U.ext_from_url(result.cover_url)
         local tmp = cache_dir .. "/" .. U.safe_filename(tostring(result.source) .. "_" .. tostring(result.id or os.time())) .. "." .. ext
-        cover_ok, cover_err = HTTP.download(result.cover_url, tmp)
-        if cover_ok then cover_ok = Writer.write_cover(file, tmp) end
+        local downloaded, download_info = HTTP.download(result.cover_url, tmp)
+        if downloaded then
+            cover_ok, cover_err = Writer.write_cover(file, tmp)
+        else
+            cover_ok, cover_err = nil, download_info
+        end
         os.remove(tmp)
     end
     if ok then self:recordLink(file, result) end
+
+    if not ok then
+        Diagnostics.log("Metadata writer", write_err or "Could not write KOReader custom metadata", self.settings)
+    elseif self.settings.download_cover and result.cover_url and not cover_ok then
+        Diagnostics.log("Cover writer", cover_err or "Could not save custom cover", self.settings)
+    end
+
     if not quiet then
         if not ok then
-            UIManager:show(InfoMessage:new{ text = _("Could not write KOReader custom metadata.") })
+            UIManager:show(InfoMessage:new{ text = _("Could not write KOReader custom metadata.") .. (write_err and ("\n" .. tostring(write_err)) or "") })
         elseif self.settings.download_cover and result.cover_url and not cover_ok then
-            UIManager:show(InfoMessage:new{ text = _("Metadata saved, but the cover could not be downloaded.") .. (cover_err and ("\n" .. tostring(cover_err)) or "") })
+            UIManager:show(InfoMessage:new{ text = _("Metadata saved, but the cover could not be saved.") .. (cover_err and ("\n" .. tostring(cover_err)) or "") })
         else
             UIManager:show(InfoMessage:new{ text = _("Metadata saved.") })
         end
@@ -820,6 +861,7 @@ function MetadataScraper:addToMainMenu(menu_items)
                 text = _("Provider accounts"),
                 sub_item_table = {
                     { text = _("Test provider connections…"), callback = function() self:testProviders() end },
+                    { text = _("Save support diagnostics…"), callback = function() self:saveSupportDiagnostics() end },
                     { text = _("Hardcover API token…"), callback = function() self:editHardcover() end },
                     { text = _("Amazon Creators API…"), callback = function() self:editAmazon() end },
                     { text_func = function() return _("Amazon marketplace") .. ": " .. self.settings.amazon_marketplace end, callback = function() self:showMarketplaceSelector() end },
