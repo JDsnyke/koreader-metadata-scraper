@@ -24,6 +24,22 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Updater payloads are verified immediately after download and re-verified immediately before installation. A missing hash, malformed digest, download mismatch, or staged-file change aborts before installed files are modified.
 - The updater stages the exact fetched `update.json` response body rather than downloading the control manifest a second time, avoiding a self-referential manifest hash requirement.
 
+### Metadata lifecycle and undo
+
+- **Expedited from the v0.2.0 lifecycle roadmap:** match preview now calculates the actual KOReader fields that will change under the current field selection and write mode.
+- The preview shows a bounded **Current → Proposed** comparison for changed title, authors, series, series index, language, and keywords; descriptions are represented as add/replace actions rather than dumping long text into the dialog.
+- An apply with no selected text changes and no cover change is treated as a no-op rather than creating an unnecessary custom-metadata sidecar.
+- Before any metadata or cover mutation, the plugin creates an undo snapshot of the exact existing KOReader custom-metadata file and custom-cover bytes.
+- If no custom metadata or cover existed before the apply, undo removes the newly created override instead of synthesizing an approximate prior state.
+- Undo snapshot creation is fail-safe: if the prior state cannot be captured, the plugin refuses to apply the mutation.
+- Added **Undo last metadata update** for the current book and in the book context metadata menu.
+- Undo restores the previous custom metadata and cover, then restores the previous Metadata Scraper provenance record.
+- Undo backup names are collision-checked and restore paths refuse to silently leave a competing current override behind.
+- One undo snapshot is retained per book, with the global undo-record set bounded to the 20 most recent books so cache/settings growth remains controlled.
+- Expanded per-book provenance to record provider/source ID, canonical ISBN, title/authors/series/language/date/publisher, score, match reasons, search query, fields written, cover outcome, plugin version, and timestamp.
+- Added **Last match details** for the current/context-selected book so the recorded source, provider ID, score, ISBN, written fields, reasons, date, and plugin version can be inspected without re-searching.
+- Cover-only changes can also be undone; a failed cover-only operation does not replace a previously valid undo record.
+
 ### Hardcover
 
 - Retains the confirmed `Authorization: Bearer <token>` authentication fix.
@@ -88,6 +104,10 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
   - image-signature cover validation
   - safe custom-cover rollback
   - controlled writer failures
+  - current-vs-proposed change calculation
+  - exact-byte metadata/cover undo snapshot and restoration
+  - removing newly created overrides when no prior custom state existed
+  - refusing an undo snapshot for a different book
   - diagnostics credential redaction and support-bundle generation
   - updater SHA-256 success, mismatch aborts, missing-hash rejection, and manifest validation
 - Added `scripts/generate_update_manifest.py` to generate or verify release payload SHA-256 entries from a frozen runtime tree.
@@ -104,14 +124,16 @@ The v0.1.3 updater now expects **future target releases** to include a `sha256` 
 
 The following larger ideas remain outside this reliability branch for now:
 
-- updater support for explicitly removed files/settings migrations
-- interactive review of borderline batch matches
-- richer per-book batch report
-- series/provider preference memory
+- multi-revision metadata history beyond the current one-step undo snapshot
 - direct `Refresh metadata` using a previously saved provider record
+- per-apply field selection beyond the existing global field controls
+- full batch preview / interactive review of borderline batch matches
+- richer per-book batch report
+- updater support for explicitly removed files/settings migrations
+- series/provider preference memory
 - persistent cross-restart diagnostic logging / direct clipboard export
 - provider-specific request pacing beyond existing provider cooldown handling
 - safe file renaming and library organization
 - audiobook metadata support
 
-These should be evaluated separately after v0.1.3 has been tested on-device, although bounded hardening work may continue to be pulled forward where it reduces release risk without expanding destructive behavior.
+These should be evaluated separately after v0.1.3 has been tested on-device, although bounded hardening/lifecycle work may continue to be pulled forward where it reduces release risk without expanding destructive behavior.
