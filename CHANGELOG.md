@@ -12,7 +12,8 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Added clearer per-provider errors/counts when a search returns no matches.
 - Added one broader title-only fallback when a strict title + author search returns no results.
 - **Expedited from the v0.1.4 hardening roadmap:** GET requests and downloads now retry once for network failures and HTTP 502/503/504 only. Generic retries deliberately do not retry HTTP 429, authentication failures, or ordinary POST requests.
-- Added cover validation before replacement: downloaded covers must be large enough to be plausible images and have a recognized JPEG, PNG, WebP, or GIF signature. Known non-image content types are rejected.
+- Added cover validation before replacement: downloaded covers must be large enough to be plausible images and have a recognized JPEG, PNG, or WebP signature. Known non-image content types are rejected.
+- Failed download paths explicitly close temporary file handles before cleanup/retry.
 - Metadata and custom-cover writes are isolated with protected calls so unexpected KOReader-side exceptions become controlled failures instead of propagating through the plugin.
 - Malformed provider result records are discarded during ranking rather than preventing valid results from other providers from being shown.
 - Added a sanitized diagnostics core with a bounded in-memory event buffer, URL query redaction, credential redaction, and support-bundle generation. Configured tokens, API keys, Amazon secrets, credential IDs, and partner tags are never intentionally emitted by the diagnostics bundle.
@@ -89,6 +90,7 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
   - controlled writer failures
   - diagnostics credential redaction and support-bundle generation
   - updater SHA-256 success, mismatch aborts, missing-hash rejection, and manifest validation
+- Added `scripts/generate_update_manifest.py` to generate or verify release payload SHA-256 entries from a frozen runtime tree.
 
 ### Configuration note for Amazon users
 
@@ -96,7 +98,7 @@ Existing installations can leave `amazon_credential_version` blank temporarily; 
 
 ### Release-manifest note
 
-The v0.1.3 updater now expects **future target releases** to include a `sha256` map in `update.json`. Each runtime path in `files` except `update.json` itself must have a 64-character SHA-256 digest. The final release process must generate and verify these hashes before a tag is published.
+The v0.1.3 updater now expects **future target releases** to include a `sha256` map in `update.json`. Each runtime path in `files` except `update.json` itself must have a 64-character SHA-256 digest. The final release process must generate and verify these hashes after the runtime file set is frozen and before a tag is published.
 
 ### Still deferred beyond 0.1.3
 
