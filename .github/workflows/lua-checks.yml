@@ -27,3 +27,4 @@ jobs:
         run: |
           lua5.1 tests/run.lua
           lua5.1 tests/hardening.lua
+          lua5.1 tests/diagnostics.lua
