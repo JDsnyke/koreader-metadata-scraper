@@ -1,3 +1,4 @@
+local JSON = require("json")
 local HTTP = require("lib/http")
 local U = require("lib/util")
 
@@ -18,7 +19,7 @@ local function graphql(token, query, variables)
     if not authorization then return nil, "Hardcover API token is not configured" end
     local res, err = HTTP.json("POST", ENDPOINT, {
         ["Authorization"] = authorization,
-        ["User-Agent"] = "KOReader-Metadata-Scraper/0.1.1",
+        ["User-Agent"] = "KOReader-Metadata-Scraper/0.1.2",
     }, { query = query, variables = variables or {} })
     if not res then return nil, err end
     if res.code ~= 200 then return nil, "HTTP " .. tostring(res.code) end
@@ -45,8 +46,37 @@ query MetadataScraperSearch($q: String!) {
     local data, err = graphql(settings.hardcover_token, gql, { q = term })
     if not data then return {}, err end
     local search = data.search or {}
-    local results = search.results or {}
     local ids = search.ids or {}
+
+    -- Hardcover search is backed by Typesense. Depending on the API version,
+    -- `results` may be a flat array of documents, a Typesense response object
+    -- with `hits[].document`, an array of hit objects, or a JSON-encoded version
+    -- of either. Normalize all of those into a simple document array.
+    local function normalize_results(value)
+        if type(value) == "string" then
+            local ok, decoded = pcall(JSON.decode, value)
+            if not ok then return nil, "Hardcover returned invalid JSON in search.results" end
+            value = decoded
+        end
+        if type(value) ~= "table" then
+            return nil, "Hardcover returned an unsupported search.results type: " .. type(value)
+        end
+
+        local source = value
+        if type(value.hits) == "table" then source = value.hits end
+
+        local docs = {}
+        for _, item in ipairs(source) do
+            if type(item) == "table" then
+                local doc = type(item.document) == "table" and item.document or item
+                if type(doc) == "table" then table.insert(docs, doc) end
+            end
+        end
+        return docs
+    end
+
+    local results, results_err = normalize_results(search.results or {})
+    if not results then return {}, results_err end
     local out = {}
     for i, r in ipairs(results) do
         local isbns = r.isbns or {}
@@ -74,6 +104,10 @@ query MetadataScraperSearch($q: String!) {
             cover_url = (type(r.image) == "table" and r.image.url) or r.image_url,
             raw = r,
         })
+    end
+
+    if #out == 0 and type(ids) == "table" and #ids > 0 then
+        return {}, "Hardcover returned search IDs but no readable result documents"
     end
 
     -- The search endpoint is intentionally enough to work on its own. Enrich covers
