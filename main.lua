@@ -52,6 +52,7 @@ local DEFAULTS = {
         language = true, keywords = true, description = true,
     },
     book_links = {},
+    undo_records = {},
 }
 
 local MARKETPLACES = {
@@ -61,6 +62,16 @@ local MARKETPLACES = {
     { "Italy", "www.amazon.it" }, { "Spain", "www.amazon.es" },
     { "India", "www.amazon.in" }, { "Japan", "www.amazon.co.jp" },
     { "Singapore", "www.amazon.sg" }, { "Netherlands", "www.amazon.nl" },
+}
+
+local PREVIEW_LABELS = {
+    title = "Title",
+    authors = "Authors",
+    series = "Series",
+    series_index = "Series index",
+    language = "Language",
+    keywords = "Keywords / genres",
+    description = "Description",
 }
 
 local source = debug.getinfo(1, "S").source or ""
@@ -78,7 +89,16 @@ local function clone_defaults()
     d.enabled = U.copy(DEFAULTS.enabled)
     d.fields = U.copy(DEFAULTS.fields)
     d.book_links = {}
+    d.undo_records = {}
     return d
+end
+
+local function display_value(value, limit)
+    if value == nil or tostring(value) == "" then return _("empty") end
+    local text = tostring(value):gsub("\r", ""):gsub("\n+", ", "):gsub("%s+", " ")
+    limit = limit or 62
+    if #text > limit then text = text:sub(1, limit - 1) .. "…" end
+    return text
 end
 
 function MetadataScraper:init()
@@ -92,6 +112,7 @@ function MetadataScraper:init()
         self.settings.fields = U.copy(DEFAULTS.fields)
         for k, v in pairs(saved.fields or {}) do self.settings.fields[k] = v end
         self.settings.book_links = saved.book_links or {}
+        self.settings.undo_records = saved.undo_records or {}
     end
     self.ui.menu:registerToMainMenu(self)
     self:installZenContextHook()
@@ -298,14 +319,18 @@ end
 
 function MetadataScraper:showBookActions(file)
     local dialog
-    dialog = ButtonDialog:new{
-        title = _("Metadata"), title_align = "center",
-        buttons = {
-            {{ text = _("Fetch metadata"), align = "left", callback = function() UIManager:close(dialog); self:startForFile(file) end }},
-            {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() UIManager:close(dialog); self:showSourceSelector() end }},
-            {{ text = _("Settings"), align = "left", callback = function() UIManager:close(dialog); self:showQuickSettings() end }},
-        },
+    local rows = {
+        {{ text = _("Fetch metadata"), align = "left", callback = function() UIManager:close(dialog); self:startForFile(file) end }},
     }
+    if self.settings.undo_records[file] then
+        table.insert(rows, {{ text = _("Undo last metadata update"), align = "left", callback = function() UIManager:close(dialog); self:confirmUndo(file) end }})
+    end
+    if self.settings.book_links[file] then
+        table.insert(rows, {{ text = _("Last match details"), align = "left", callback = function() UIManager:close(dialog); self:showLastMatchDetails(file) end }})
+    end
+    table.insert(rows, {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() UIManager:close(dialog); self:showSourceSelector() end }})
+    table.insert(rows, {{ text = _("Settings"), align = "left", callback = function() UIManager:close(dialog); self:showQuickSettings() end }})
+    dialog = ButtonDialog:new{ title = _("Metadata"), title_align = "center", buttons = rows }
     UIManager:show(dialog)
 end
 
@@ -696,19 +721,172 @@ function MetadataScraper:showResults(file, raw, query, results)
     UIManager:show(dialog)
 end
 
-function MetadataScraper:recordLink(file, r)
+function MetadataScraper:pruneUndoRecords()
+    local records = self.settings.undo_records or {}
+    local ordered = {}
+    for file, record in pairs(records) do
+        table.insert(ordered, { file = file, created_at = tonumber(record.created_at) or 0 })
+    end
+    table.sort(ordered, function(a, b) return a.created_at < b.created_at end)
+    while #ordered > 20 do
+        local oldest = table.remove(ordered, 1)
+        local record = records[oldest.file]
+        if record then Writer.discard_snapshot(record.snapshot or record) end
+        records[oldest.file] = nil
+    end
+end
+
+function MetadataScraper:storeUndoRecord(file, snapshot, previous_link)
+    self.settings.undo_records = self.settings.undo_records or {}
+    local old = self.settings.undo_records[file]
+    if old then Writer.discard_snapshot(old.snapshot or old) end
+    self.settings.undo_records[file] = {
+        snapshot = snapshot,
+        previous_book_link = previous_link,
+        had_previous_link = previous_link ~= nil,
+        created_at = os.time(),
+    }
+    self:pruneUndoRecords()
+end
+
+function MetadataScraper:recordLink(file, r, query, changes, cover_ok)
+    local written_fields = {}
+    for _, change in ipairs(changes or {}) do table.insert(written_fields, change.key) end
     self.settings.book_links[file] = {
-        source = r.source, id = r.id, isbn10 = r.isbn10, isbn13 = r.isbn13,
+        provenance_version = 1,
+        source = r.source,
+        source_label = r.source_label,
+        id = r.id,
+        isbn10 = r.isbn10,
+        isbn13 = r.isbn13,
+        canonical_isbn = U.canonical_isbn(r.isbn13) or U.canonical_isbn(r.isbn10),
+        title = r.title,
+        authors = U.copy(r.authors),
+        authors_text = r.authors_text or U.join(r.authors, ", "),
+        series = r.series,
+        series_index = r.series_index,
+        language = r.language,
+        published_date = r.published_date,
+        publisher = r.publisher,
+        score = r.score,
+        match_reasons = U.copy(r.match_reasons),
+        also_sources = U.copy(r.also_sources),
+        query = {
+            title = query and query.title or nil,
+            author = query and query.author or nil,
+            isbn = query and query.isbn or nil,
+            language = query and query.language or nil,
+            series = query and query.series or nil,
+        },
+        written_fields = written_fields,
+        cover_applied = cover_ok == true,
+        cover_source = cover_ok and r.source or nil,
         plugin_version = Version.VERSION,
         updated_at = os.date("%Y-%m-%d %H:%M:%S"),
     }
     self:saveSettings()
 end
 
-function MetadataScraper:applyResult(file, raw, result, quiet)
-    local ok, write_err = Writer.write(file, raw, result, self.settings.fields, self.settings.replace_existing)
+function MetadataScraper:showLastMatchDetails(file)
+    local link = self.settings.book_links[file]
+    if type(link) ~= "table" then
+        UIManager:show(InfoMessage:new{ text = _("No Metadata Scraper match is recorded for this book.") })
+        return
+    end
+    local lines = {
+        link.title or _("Unknown title"),
+        _("Source") .. ": " .. tostring(link.source_label or link.source or _("unknown")),
+    }
+    if link.id then table.insert(lines, _("Provider ID") .. ": " .. tostring(link.id)) end
+    if link.score then table.insert(lines, _("Match score") .. ": " .. tostring(link.score) .. "%") end
+    if link.canonical_isbn then table.insert(lines, "ISBN: " .. tostring(link.canonical_isbn)) end
+    if link.series then
+        table.insert(lines, _("Series") .. ": " .. tostring(link.series) .. (link.series_index and (" #" .. tostring(link.series_index)) or ""))
+    end
+    if link.written_fields and #link.written_fields > 0 then
+        table.insert(lines, _("Fields written") .. ": " .. U.join(link.written_fields, ", "))
+    end
+    if link.match_reasons and #link.match_reasons > 0 then
+        table.insert(lines, _("Match reasons") .. ": " .. U.join(link.match_reasons, ", "))
+    end
+    if link.updated_at then table.insert(lines, _("Matched") .. ": " .. tostring(link.updated_at)) end
+    table.insert(lines, _("Plugin") .. ": " .. tostring(link.plugin_version or _("unknown")))
+    UIManager:show(InfoMessage:new{ text = table.concat(lines, "\n") })
+end
+
+function MetadataScraper:confirmUndo(file)
+    local record = self.settings.undo_records and self.settings.undo_records[file]
+    if not record then
+        UIManager:show(InfoMessage:new{ text = _("No undo snapshot is available for this book.") })
+        return
+    end
+    local box
+    box = ConfirmBox:new{
+        text = _("Restore the custom metadata and custom cover that existed before the last Metadata Scraper update?"),
+        ok_text = _("Undo"),
+        ok_callback = function()
+            UIManager:close(box)
+            local snapshot = record.snapshot or record
+            local ok, err = Writer.restore_snapshot(file, snapshot)
+            if not ok then
+                Diagnostics.log("Metadata undo", err or "Undo failed", self.settings)
+                UIManager:show(InfoMessage:new{ text = _("Could not undo the metadata update.") .. "\n" .. tostring(err) })
+                return
+            end
+            Writer.discard_snapshot(snapshot)
+            self.settings.undo_records[file] = nil
+            if record.had_previous_link then
+                self.settings.book_links[file] = record.previous_book_link
+            else
+                self.settings.book_links[file] = nil
+            end
+            self:saveSettings()
+            UIManager:show(InfoMessage:new{ text = _("Previous metadata and cover restored.") })
+        end,
+    }
+    UIManager:show(box)
+end
+
+function MetadataScraper:applyResult(file, raw, result, quiet, query)
+    local changes, preview_err = Writer.preview(file, raw, result, self.settings.fields, self.settings.replace_existing)
+    if not changes then
+        Diagnostics.log("Metadata preview", preview_err or "Could not calculate proposed changes", self.settings)
+        if not quiet then UIManager:show(InfoMessage:new{ text = _("Could not calculate the metadata changes safely.") .. "\n" .. tostring(preview_err) }) end
+        return false
+    end
+
+    local wants_cover = self.settings.download_cover and result.cover_url ~= nil
+    if #changes == 0 and not wants_cover then
+        if not quiet then UIManager:show(InfoMessage:new{ text = _("No selected metadata fields need changing.") }) end
+        return true
+    end
+
+    local undo_dir = DataStorage:getDataDir() .. "/cache/metadata_scraper/undo"
+    util.makePath(undo_dir)
+    local snapshot, snapshot_err = Writer.snapshot(file, undo_dir)
+    if not snapshot then
+        Diagnostics.log("Metadata undo", snapshot_err or "Could not create undo snapshot", self.settings)
+        if not quiet then UIManager:show(InfoMessage:new{ text = _("Metadata was not changed because an undo snapshot could not be created.") .. "\n" .. tostring(snapshot_err) }) end
+        return false
+    end
+
+    local previous_link = self.settings.book_links[file]
+    local ok, write_err = true, nil
+    if #changes > 0 then
+        ok, write_err = Writer.write(file, raw, result, self.settings.fields, self.settings.replace_existing)
+    end
+
+    if not ok then
+        Writer.discard_snapshot(snapshot)
+        Diagnostics.log("Metadata writer", write_err or "Could not write KOReader custom metadata", self.settings)
+        if not quiet then
+            UIManager:show(InfoMessage:new{ text = _("Could not write KOReader custom metadata.") .. (write_err and ("\n" .. tostring(write_err)) or "") })
+        end
+        return false
+    end
+
     local cover_ok, cover_err
-    if ok and self.settings.download_cover and result.cover_url then
+    if wants_cover then
         local cache_dir = DataStorage:getDataDir() .. "/cache/metadata_scraper"
         util.makePath(cache_dir)
         local ext = U.ext_from_url(result.cover_url)
@@ -721,24 +899,32 @@ function MetadataScraper:applyResult(file, raw, result, quiet)
         end
         os.remove(tmp)
     end
-    if ok then self:recordLink(file, result) end
 
-    if not ok then
-        Diagnostics.log("Metadata writer", write_err or "Could not write KOReader custom metadata", self.settings)
-    elseif self.settings.download_cover and result.cover_url and not cover_ok then
+    local text_applied = #changes > 0
+    local applied_any = text_applied or cover_ok == true
+    if applied_any then
+        self:storeUndoRecord(file, snapshot, previous_link)
+        self:recordLink(file, result, query, changes, cover_ok)
+    else
+        Writer.discard_snapshot(snapshot)
+    end
+
+    if wants_cover and not cover_ok then
         Diagnostics.log("Cover writer", cover_err or "Could not save custom cover", self.settings)
     end
 
     if not quiet then
-        if not ok then
-            UIManager:show(InfoMessage:new{ text = _("Could not write KOReader custom metadata.") .. (write_err and ("\n" .. tostring(write_err)) or "") })
-        elseif self.settings.download_cover and result.cover_url and not cover_ok then
+        if wants_cover and not cover_ok and text_applied then
             UIManager:show(InfoMessage:new{ text = _("Metadata saved, but the cover could not be saved.") .. (cover_err and ("\n" .. tostring(cover_err)) or "") })
+        elseif wants_cover and not cover_ok then
+            UIManager:show(InfoMessage:new{ text = _("The cover could not be saved.") .. (cover_err and ("\n" .. tostring(cover_err)) or "") })
+        elseif not text_applied and cover_ok then
+            UIManager:show(InfoMessage:new{ text = _("Cover saved. You can undo this change from Metadata Scraper.") })
         else
-            UIManager:show(InfoMessage:new{ text = _("Metadata saved.") })
+            UIManager:show(InfoMessage:new{ text = _("Metadata saved. You can undo this change from Metadata Scraper.") })
         end
     end
-    return ok
+    return applied_any
 end
 
 function MetadataScraper:showPreview(file, raw, query, r)
@@ -758,11 +944,33 @@ function MetadataScraper:showPreview(file, raw, query, r)
     if r.also_sources and #r.also_sources > 0 then info(_("Also found on"), U.join(r.also_sources, ", ")) end
     if r.match_reasons and #r.match_reasons > 0 then info(_("Match"), U.join(r.match_reasons, ", ")) end
     info(_("Cover"), r.cover_url and _("available") or _("not available"))
+
+    local changes, change_err = Writer.preview(file, raw, r, self.settings.fields, self.settings.replace_existing)
+    if changes then
+        if #changes == 0 then
+            info(_("Text changes"), _("none with current field/write-mode settings"))
+        else
+            table.insert(rows, {{ text = _("Current → Proposed"), align = "left", enabled = false }})
+            for _, change in ipairs(changes) do
+                local label = _(PREVIEW_LABELS[change.key] or change.key)
+                local text
+                if change.key == "description" then
+                    text = label .. ": " .. (change.action == "add" and _("add description") or _("replace description"))
+                else
+                    text = label .. ": " .. display_value(change.current) .. " → " .. display_value(change.proposed)
+                end
+                table.insert(rows, {{ text = text, align = "left", enabled = false }})
+            end
+        end
+    else
+        info(_("Change preview"), _("unavailable") .. ": " .. tostring(change_err))
+    end
+
     table.insert(rows, {
         { text = _("Back"), callback = function() UIManager:close(dialog); self:searchOnline(file, raw, query) end },
         { text = _("Apply"), callback = function()
             UIManager:close(dialog)
-            NetworkMgr:runWhenOnline(function() self:applyResult(file, raw, r, false) end)
+            NetworkMgr:runWhenOnline(function() self:applyResult(file, raw, r, false, query) end)
         end },
     })
     dialog = ButtonDialog:new{ title = r.title or _("Book metadata"), title_align = "center", buttons = rows }
@@ -817,7 +1025,7 @@ function MetadataScraper:runBatch(files, count)
             UIManager:close(busy)
             local best = results and results[1]
             if best and (best.score or 0) >= threshold then
-                if self:applyResult(file, raw, best, true) then applied = applied + 1 else failed = failed + 1 end
+                if self:applyResult(file, raw, best, true, q) then applied = applied + 1 else failed = failed + 1 end
             else
                 skipped = skipped + 1
             end
@@ -838,6 +1046,22 @@ function MetadataScraper:addToMainMenu(menu_items)
                 text = _("Fetch metadata for current book"),
                 enabled_func = function() local f = self:getCurrentFile(); return f and self:isEpub(f) end,
                 callback = function() self:startForFile(self:getCurrentFile()) end,
+            },
+            {
+                text = _("Undo last metadata update"),
+                enabled_func = function()
+                    local f = self:getCurrentFile()
+                    return f and self.settings.undo_records and self.settings.undo_records[f] ~= nil
+                end,
+                callback = function() self:confirmUndo(self:getCurrentFile()) end,
+            },
+            {
+                text = _("Last match details"),
+                enabled_func = function()
+                    local f = self:getCurrentFile()
+                    return f and self.settings.book_links and self.settings.book_links[f] ~= nil
+                end,
+                callback = function() self:showLastMatchDetails(self:getCurrentFile()) end,
             },
             { text = _("Choose EPUB…"), callback = function() self:chooseEpub() end },
             { text = _("Batch folder…"), callback = function() self:chooseBatchFolder() end, separator = true },
