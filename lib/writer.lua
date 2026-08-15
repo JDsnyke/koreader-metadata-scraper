@@ -2,6 +2,7 @@ local DocSettings = require("docsettings")
 local Event = require("ui/event")
 local UIManager = require("ui/uimanager")
 local U = require("lib/util")
+local HTTP = require("lib/http")
 
 local M = {}
 local SUPPORTED = { "title", "authors", "series", "series_index", "language", "keywords", "description" }
@@ -28,7 +29,11 @@ local function write_file(path, data)
     return ok and true or nil
 end
 
-function M.write(file, original_props, result, fields, replace_existing)
+local function write_metadata(file, original_props, result, fields, replace_existing)
+    original_props = type(original_props) == "table" and original_props or {}
+    result = type(result) == "table" and result or {}
+    fields = type(fields) == "table" and fields or {}
+
     local existing_file = DocSettings:findCustomMetadataFile(file)
     local ds = existing_file and DocSettings.openSettingsFile(existing_file) or DocSettings.openSettingsFile()
     if not existing_file then
@@ -42,6 +47,7 @@ function M.write(file, original_props, result, fields, replace_existing)
     end
 
     local custom = ds:readSetting("custom_props", {})
+    if type(custom) ~= "table" then custom = {} end
     local incoming = {
         title = result.title,
         authors = result.authors_text or U.join(result.authors, "\n"),
@@ -68,7 +74,18 @@ function M.write(file, original_props, result, fields, replace_existing)
     return ok
 end
 
-function M.write_cover(file, image_file)
+function M.write(file, original_props, result, fields, replace_existing)
+    local ok, written = pcall(write_metadata, file, original_props, result, fields, replace_existing)
+    if not ok then return nil, tostring(written) end
+    return written
+end
+
+local function write_cover(file, image_file)
+    -- Validate before touching an existing custom cover. This catches HTML error
+    -- pages, JSON responses, tiny placeholders, and otherwise invalid downloads.
+    local valid, validation = HTTP.validate_image_file(image_file)
+    if not valid then return nil, validation end
+
     local existing = DocSettings:findCustomCoverFile(file)
     local backup
 
@@ -77,20 +94,30 @@ function M.write_cover(file, image_file)
     -- failed replacement never destroys a user's existing custom cover.
     if existing then
         backup = read_file(existing)
-        if backup == nil then return nil end
+        if backup == nil then return nil, "Could not back up the existing custom cover" end
         local removed = os.remove(existing)
-        if not removed then return nil end
+        if not removed then return nil, "Could not remove the existing custom cover" end
     end
 
     local ok = DocSettings:flushCustomCover(file, image_file)
     if not ok then
-        if existing and backup then write_file(existing, backup) end
-        return nil
+        if existing and backup then
+            if not write_file(existing, backup) then
+                return nil, "Cover replacement failed and the previous cover could not be restored"
+            end
+        end
+        return nil, "KOReader could not install the custom cover"
     end
 
     UIManager:broadcastEvent(Event:new("InvalidateMetadataCache", file))
     UIManager:broadcastEvent(Event:new("BookMetadataChanged"))
     return true
+end
+
+function M.write_cover(file, image_file)
+    local ok, written, err = pcall(write_cover, file, image_file)
+    if not ok then return nil, tostring(written) end
+    return written, err
 end
 
 return M
