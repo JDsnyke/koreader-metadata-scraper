@@ -12,324 +12,325 @@ Every feature/release should satisfy the following where applicable:
 - [ ] Regression tests cover the new success path.
 - [ ] Regression tests cover at least one failure/edge path.
 - [ ] Provider/network failures remain isolated from unrelated providers.
-- [ ] Credentials, tokens, keys, secrets, authorization headers, and private URLs are redacted from diagnostics.
+- [ ] Credentials, tokens, keys, secrets, authorization headers, and private query values are redacted from diagnostics.
 - [ ] Existing user settings migrate without requiring a reset.
 - [ ] Any write/rename/delete operation has an explicit failure strategy.
 - [ ] Existing metadata/cover/files are preserved when a replacement operation fails.
 - [ ] Batch behavior has a bounded limit and does not silently become recursive/unbounded.
 - [ ] UI text is usable on Kindle-size displays and does not require a hardware keyboard.
-- [ ] README/changelog/roadmap are updated for user-visible changes.
+- [ ] README/changelog/roadmap/checklists are updated for user-visible changes.
 - [ ] `update.json` matches the runtime file set and release version.
+- [ ] Release payload hashes are generated from the frozen runtime tree and verified.
 - [ ] Real-device smoke testing is completed before a stable release.
 
 ---
 
-# v0.1.3 — Reliability & Matching
+# v0.1.3 — Reliability, Matching & Hardening
 
 Branch: `agent/v0.1.3-reliability-matching`
 
-Goal: establish a stable, diagnosable matching baseline before adding destructive or library-wide functions.
+Goal: establish a stable, diagnosable matching baseline before adding destructive or library-wide functions. Several highly ranked v0.1.4/v0.2.0 safety items were intentionally expedited because they are bounded and reduce current-release risk.
 
-## Implemented on branch
+## A. Versioning and provider baseline
 
 - [x] Central version module (`lib/version.lua`).
 - [x] Remove stale provider/About/updater version strings.
 - [x] Provider connection diagnostics.
 - [x] Hardcover Bearer normalization retained.
 - [x] Hardcover Typesense result normalization retained.
+- [x] Google 429/Retry-After behavior retained and regression-tested.
+- [x] Amazon credential-version setting and regional token endpoint handling.
+- [x] Amazon token cache tied to credential identity/endpoint.
+- [x] Amazon one-time token refresh/retry after HTTP 401.
+
+## B. Metadata discovery and identity
+
 - [x] Automatic EPUB ISBN extraction from KOReader identifiers.
 - [x] ISBN-10/ISBN-13 checksum validation.
 - [x] ISBN-10 → ISBN-13 canonical comparison.
 - [x] Cross-provider duplicate collapsing.
 - [x] Merge useful missing fields from duplicate provider records.
-- [x] Match reasons displayed in result/preview flow.
-- [x] Title-only fallback after a strict title+author zero-result search.
+- [x] Title-only fallback after strict title+author zero-result search.
 - [x] Per-provider zero-result/error reporting.
-- [x] Existing custom cover restored if replacement fails.
-- [x] Amazon credential-version setting and token endpoint handling.
-- [x] Amazon token cache tied to credential identity/endpoint.
-- [x] Amazon one-time token refresh/retry after HTTP 401.
-- [x] Google 429/Retry-After regression coverage.
-- [x] Lua 5.1 syntax CI.
-- [x] Regression suite.
+- [x] Saved provenance includes provider ID/ISBN/plugin version/timestamp.
 
-## Release gate
+## C. Confidence safeguards — expedited core of #42
+
+- [x] Exact valid ISBN remains authoritative at 100%.
+- [x] Conflicting valid ISBN is treated as strong negative evidence.
+- [x] Conflicting ISBN result is capped far below the default 90% automatic threshold.
+- [x] Strong author conflict reduces confidence.
+- [x] Language conflict reduces confidence.
+- [x] Series conflict reduces confidence.
+- [x] Material year conflict reduces confidence.
+- [x] Match/conflict reasons are shown in preview.
+- [x] Regression fixtures cover the conflict behavior.
+- [ ] Add explicit ebook/audiobook/format edition evidence — v0.2.0.
+- [ ] Add richer numeric score-component breakdown — v0.2.0.
+
+## D. Crash/error isolation — expedited core of #48
+
+- [x] Provider calls remain protected so one provider exception does not terminate a multi-provider search.
+- [x] Malformed provider result records are discarded during ranking rather than crashing valid results.
+- [x] KOReader metadata-read exceptions return controlled empty metadata and are logged.
+- [x] Metadata-write exceptions return controlled failures.
+- [x] Cover-write exceptions return controlled failures.
+- [x] Updater verifies/stages before mutating installed files and retains rollback behavior.
+- [x] Regression tests cover malformed provider records and writer exceptions.
+- [ ] Consolidate remaining operation wrappers if real-device testing shows duplicated failure paths — v0.1.4.
+
+## E. Shared transient HTTP resilience — expedited core of #24
+
+- [x] One default retry for GET/HEAD network failure.
+- [x] One default retry for HTTP 502/503/504.
+- [x] Downloads use the same cautious transient retry model.
+- [x] Ordinary POST requests are not generically duplicated.
+- [x] Generic logic does not blindly retry HTTP 429.
+- [x] Provider-specific 429/cooldown handling remains authoritative.
+- [x] Retry/failure events are recorded in sanitized diagnostics.
+- [x] Failed download file handles are explicitly closed before cleanup.
+- [ ] Add provider-specific request pacing for batch operations — v0.1.4.
+
+## F. Cover validation and rollback — expedited core of #25
+
+- [x] Validate downloaded file is readable.
+- [x] Reject implausibly tiny payloads.
+- [x] Check Content-Type when available and reject known non-image responses.
+- [x] Check binary signature.
+- [x] Accept supported JPEG/PNG/WebP signatures only.
+- [x] Validate before touching an existing custom cover.
+- [x] Back up and restore previous custom cover if KOReader replacement fails.
+- [x] Regression tests cover valid image/HTML rejection and rollback behavior.
+- [ ] Optional decoded-dimension/aspect-ratio checks — v0.2.1 cover-quality work.
+- [ ] Placeholder-image scoring where multiple alternatives exist — v0.2.1.
+
+## G. Sanitized diagnostics — expedited core of #46/#47/#30
+
+- [x] Bounded in-memory event buffer.
+- [x] Record HTTP failures/retries using URLs with query strings removed.
+- [x] Record provider diagnostic/search errors.
+- [x] Record updater failures.
+- [x] Record metadata-read/write and cover-write failures.
+- [x] Redact configured Hardcover token.
+- [x] Redact configured Google API key.
+- [x] Redact Amazon Credential ID, secret, and Partner Tag.
+- [x] Pattern-redact Bearer credentials and common query-secret forms.
+- [x] Generate a support bundle containing provider/configuration state but not credential values.
+- [x] Add **Save support diagnostics…** UI action.
+- [x] Save bundle under plugin cache and report its path.
+- [x] Regression tests inject fake credentials and ensure the bundle does not contain them.
+- [ ] Persist/rotate diagnostic logs across restarts — v0.1.4.
+- [ ] Include richer safe device/KOReader runtime fields where APIs are stable — v0.1.4.
+- [ ] Optional clipboard/copy workflow where KOReader support is reliable — v0.1.4.
+
+## H. SHA-256 updater integrity — expedited #26
+
+- [x] Use KOReader's bundled `ffi/sha2` SHA-256 implementation; no shell/binary dependency.
+- [x] Extend target manifest format with a `sha256` path→digest map.
+- [x] Require a valid 64-character digest for every runtime payload except the control `update.json` itself.
+- [x] Stage the exact already-fetched `update.json` body rather than fetching it twice.
+- [x] Download all target runtime files into staging before installation.
+- [x] Verify every staged runtime file after download.
+- [x] Abort before installed plugin files are touched if any digest is absent/malformed/mismatched.
+- [x] Re-verify staged files immediately before apply.
+- [x] Keep backup/rollback behavior after verification.
+- [x] Regression tests cover successful install, mismatch abort, missing map, and missing per-file digest.
+- [x] Add `scripts/generate_update_manifest.py` for release-time generation/verification.
+- [ ] Freeze the v0.1.3 runtime file set.
+- [ ] Run `python3 scripts/generate_update_manifest.py` on the frozen release tree.
+- [ ] Run `python3 scripts/generate_update_manifest.py --check` successfully before tagging.
+
+## I. Automated tests currently required
+
+- [x] `tests/run.lua` — core/provider regressions.
+- [x] `tests/hardening.lua` — retry/image/writer/malformed-result isolation.
+- [x] `tests/diagnostics.lua` — redaction/support bundle.
+- [x] `tests/matcher_safety.lua` — conflict safeguards.
+- [x] `tests/updater_integrity.lua` — SHA-256 updater behavior.
+- [x] Lua 5.1 syntax check for every `.lua` file.
+- [ ] Exact release-candidate head is green after all final doc/runtime changes.
+
+## J. v0.1.3 release gate
 
 Follow [`v0.1.3-testing.md`](v0.1.3-testing.md).
 
-- [ ] Install branch build on a real Kindle/KOReader installation.
-- [ ] Confirm plugin loads with no startup error.
-- [ ] Confirm About/version is 0.1.3 everywhere user-visible.
-- [ ] Test Open Library connection diagnostic.
-- [ ] Test Hardcover connection diagnostic with a real token.
-- [ ] Test Google Books diagnostic with a real API key.
-- [ ] Test Amazon diagnostic if valid Creators API credentials are available.
+- [ ] Install branch build on real Kindle/KOReader.
+- [ ] Confirm plugin loads and About shows 0.1.3.
+- [ ] Confirm Open Library/Hardcover/Google provider diagnostics; Amazon when credentials are available.
 - [ ] Search `Dungeon Crawler Carl` through Hardcover.
-- [ ] Confirm an EPUB with a valid embedded ISBN pre-fills the ISBN field.
-- [ ] Confirm an invalid 10/13-digit identifier is not promoted to exact ISBN confidence.
-- [ ] Confirm cross-provider duplicates collapse correctly.
-- [ ] Confirm provider `+N` source indicator is understandable.
-- [ ] Confirm match reasons fit the preview UI.
-- [ ] Apply metadata and cover to a test EPUB.
-- [ ] Confirm a failed replacement cover preserves the previous custom cover.
-- [ ] Run a small batch against known books.
-- [ ] Verify existing `metadata_scraper.lua` credentials survive an in-place upgrade.
-- [ ] Only after the above: prepare PR/release candidate.
+- [ ] Confirm embedded ISBN prefill and checksum filtering.
+- [ ] Sample ISBN/language/author/series conflict scoring on-device.
+- [ ] Confirm cross-provider deduplication and match reasons.
+- [ ] Confirm valid cover replacement and old-cover preservation on a safe failure path if practical.
+- [ ] Review a generated support diagnostics file with real configured accounts and confirm no secret values appear.
+- [ ] Run a small batch and check automatic threshold behavior.
+- [ ] Verify existing settings/credentials survive an in-place upgrade.
+- [ ] Update README for all v0.1.3 user/release-maintainer changes.
+- [ ] Freeze runtime files.
+- [ ] Generate/verify manifest SHA-256 map.
+- [ ] Build/test exact release ZIP.
+- [ ] Only then prepare merge/release candidate.
 
 ---
 
-# v0.1.4 — Hardening, updater integrity & supportability
+# v0.1.4 — Remaining hardening & supportability
 
-Primary roadmap IDs: #48, #26, #46, #47, #24, #27, #25, #22, #30, #20, #29, #28.
+Primary remaining roadmap IDs: #27, #22, #20, #30, #29, #28 plus follow-up depth for #48/#46/#47/#25.
 
-## A. Crash/error isolation — #48
+## A. Updater deletion and settings migrations — #27
 
-- [ ] Introduce a shared provider-call wrapper that converts thrown errors into structured provider failures.
-- [ ] Ensure parser failures cannot terminate a multi-provider search.
-- [ ] Ensure cover parsing/download errors do not invalidate already-written text metadata.
-- [ ] Ensure updater errors cannot corrupt plugin files already on disk.
-- [ ] Add tests for malformed JSON, unexpected response types, provider exceptions, and nil fields.
-- [ ] Include provider ID, operation, HTTP status, and sanitized error class in diagnostics.
-
-**Acceptance criteria**
-
-- A deliberately broken provider response still allows healthy providers to return results.
-- No secret value is included in the surfaced error.
-- No plugin restart is required after a recoverable provider failure.
-
-## B. SHA-256 updater verification — #26
-
-- [ ] Extend the manifest format so each runtime file has a SHA-256 digest.
-- [ ] Preserve compatibility with old manifests during a transition period or fail with a clear minimum-version message.
-- [ ] Download every file into staging before touching the installed plugin.
-- [ ] Verify every staged file digest.
-- [ ] Abort before installation if any digest mismatches.
-- [ ] Keep current backup/rollback behavior after digest verification.
-- [ ] Add manifest parser tests for missing, malformed, duplicate, and mismatching hashes.
-
-**Acceptance criteria**
-
-- A modified staged file is rejected before replacement.
-- A hash mismatch leaves the installed plugin untouched.
-- The updater reports which path failed verification without dumping content.
-
-## C. Updater deletion and settings migrations — #27
-
-- [ ] Add an optional `remove` list to `update.json`.
-- [ ] Validate removal paths with the same traversal protections as install paths.
+- [ ] Add optional `remove` list to `update.json`.
+- [ ] Validate removal paths using install traversal protections.
 - [ ] Back up files before removal.
 - [ ] Restore removed files if a later installation step fails.
-- [ ] Add a settings schema version.
-- [ ] Add ordered migration functions (`N → N+1`) rather than ad-hoc checks.
-- [ ] Test upgrade paths from at least the oldest supported plugin settings format.
+- [ ] Add settings schema version.
+- [ ] Add ordered migration functions (`N → N+1`).
+- [ ] Test upgrade paths from oldest supported settings format.
 
-## D. Provider diagnostic logging — #46
+## B. Provider request pacing/status — #22/#20
 
-- [ ] Add a disabled-by-default diagnostic log mode.
-- [ ] Record timestamp, plugin version, provider, operation, elapsed time, HTTP status, retry/cooldown state, result count, and response-shape summary.
-- [ ] Redact `Authorization`, API keys, secrets, OAuth tokens, partner credentials, and query parameters known to contain secrets.
-- [ ] Never write full provider response bodies by default.
-- [ ] Add log rotation/size cap.
-- [ ] Add `Clear diagnostic log` action.
+- [ ] Define provider-specific minimum request intervals for batch mode.
+- [ ] Honor `Retry-After` and provider cooldowns.
+- [ ] Prevent batch from hammering a provider after quota response.
+- [ ] Continue healthy providers when another is cooling down.
+- [ ] Expose `ready`, `cooling down`, `credentials missing`, `auth failed`, `temporarily unavailable` states.
 
-## E. Sanitized support bundle — #47
+## C. Persistent diagnostic logging — #46 follow-up
 
-- [ ] Add `Copy diagnostics`/`Save diagnostics` action.
-- [ ] Include plugin version and KOReader version.
-- [ ] Include device/platform string where KOReader safely exposes it.
-- [ ] Include enabled providers and selected source scope.
-- [ ] Include provider diagnostic status, not credentials.
-- [ ] Include recent sanitized provider errors.
-- [ ] Include relevant settings such as batch threshold and marketplace, excluding secrets.
-- [ ] Include updater status/release channel.
-- [ ] Add a final redaction pass and tests using fake secrets.
+- [ ] Decide opt-in/always-bounded persistence model.
+- [ ] Log timestamp, plugin version, provider, operation, elapsed time, HTTP status, retry/cooldown state, result count, response-shape summary.
+- [ ] Never persist provider response bodies by default.
+- [ ] Add rotation/size cap.
+- [ ] Add `Clear diagnostic log`.
+- [ ] Re-run redaction over persisted data before export.
 
-**Acceptance criteria**
+## D. Richer support bundle — #47 follow-up
 
-- A fixture containing fake API keys/tokens produces a support bundle with none of the fake secrets present.
+- [ ] Add KOReader version when safely exposed.
+- [ ] Add safe device/platform string when available.
+- [ ] Include batch threshold/update-channel/updater state.
+- [ ] Optional copy-to-clipboard action where supported.
+- [ ] Keep save-to-file action as universal fallback.
 
-## F. Shared transient HTTP resilience — #24
+## E. Credential UX — #30
 
-- [ ] Add a common retry policy for transient connection failures.
-- [ ] Retry selected `502`, `503`, `504`, socket reset, and timeout cases once by default.
-- [ ] Use bounded delay/jitter.
-- [ ] Do not blindly retry `400`, `401`, `403`, `404`, or provider-specific quota responses.
-- [ ] Preserve provider-specific 429 handling.
-- [ ] Surface final attempt count in diagnostics.
+- [ ] Mask saved credentials in account UI.
+- [ ] Optionally show last four characters for identification.
+- [ ] Validate Amazon credential-version input before saving.
+- [ ] Never echo secrets in error dialogs.
+- [ ] Keep provider-specific Test action close to account configuration.
 
-## G. Cover validation — #25
+## F. Settings backup/reset — #29
 
-- [ ] Validate HTTP success status.
-- [ ] Reject zero-byte files.
-- [ ] Check content type when available.
-- [ ] Detect obvious HTML/JSON error payloads saved as image files.
-- [ ] Where practical, validate decodable image dimensions before installation.
-- [ ] Reject known placeholder/tiny images below a conservative threshold when alternatives exist.
-- [ ] Keep previous cover when validation fails.
+- [ ] `Reset matching settings`.
+- [ ] `Reset provider settings` with warning.
+- [ ] `Reset all plugin settings`.
+- [ ] Consider credential-free configuration export as default backup mode.
+- [ ] If secret export is ever supported, require separate explicit warning/action.
 
-## H. Provider rate controls/status — #22 and #20
+## G. Stable/prerelease channel — #28
 
-- [ ] Define provider-specific minimum request intervals for batch operations.
-- [ ] Honor provider `Retry-After`/cooldown information.
-- [ ] Show `ready`, `cooling down`, `credentials missing`, `auth failed`, or `temporarily unavailable` status.
-- [ ] Prevent batch mode from hammering a provider after a quota response.
-- [ ] Continue querying healthy providers when one provider is cooling down.
-
-## I. Credential UX — #30
-
-- [ ] Mask saved credentials in the UI.
-- [ ] Optionally show only last four characters for identification.
-- [ ] Add provider-specific `Test` action next to account configuration where practical.
-- [ ] Validate Amazon credential-version value.
-- [ ] Never echo secrets back in an error dialog.
-
-## J. Settings backup/reset — #29
-
-- [ ] Add `Reset matching settings`.
-- [ ] Add `Reset provider settings` with an explicit warning.
-- [ ] Add `Reset all plugin settings`.
-- [ ] Consider export without credentials as the default backup mode.
-- [ ] If secret export is ever supported, require an explicit warning and separate action.
-
-## K. Stable/prerelease channel — #28
-
-- [ ] Keep Stable as default.
-- [ ] Add optional Prerelease/Test channel that only follows GitHub prereleases, not arbitrary `main` commits.
-- [ ] Clearly label test releases in update prompts.
-- [ ] Allow returning to Stable without a settings reset.
+- [ ] Stable remains default.
+- [ ] Optional Prerelease/Test channel follows published GitHub prereleases only, never arbitrary `main`.
+- [ ] Clearly label test updates.
+- [ ] Allow return to Stable without settings reset.
 
 ---
 
 # v0.2.0 — Metadata lifecycle, review & undo
 
-Primary roadmap IDs: #6, #12, #1, #14, #42, #10, #44, #23, #15, #13, #11, #18, #16, #45, #17.
+Primary roadmap IDs: #6, #12, #1, #14, expanded #42, #10, #44, #23, #15, #13, #11, #18, #16, #45, #17.
 
 ## A. Provenance model prerequisite
 
 Before refresh/undo, define a stable record per matched file:
 
 - [ ] canonical file identity/path strategy;
-- [ ] provider ID;
-- [ ] provider source;
+- [ ] provider ID and source;
 - [ ] ISBN-10/ISBN-13;
 - [ ] canonical work/edition key where available;
 - [ ] matched title/author/series;
-- [ ] match score/confidence class;
-- [ ] plugin version;
-- [ ] matched timestamp;
-- [ ] last refresh timestamp;
-- [ ] fields written;
-- [ ] cover source/provider;
+- [ ] score/confidence class;
+- [ ] plugin version and timestamps;
+- [ ] fields written and cover source;
 - [ ] previous-state reference for undo/history.
 
 ## B. Exact-edition awareness — #6
 
-- [ ] Add explicit edition-format signals when providers expose them.
+- [ ] Add edition-format signals when providers expose them.
 - [ ] Distinguish work-level and edition-level IDs.
 - [ ] Prefer exact ISBN edition over same-work text matches.
-- [ ] Penalize conflicting valid ISBNs.
-- [ ] Penalize conflicting language.
-- [ ] Penalize audiobook-only result when processing an EPUB if a book edition exists.
-- [ ] Consider publication year, publisher, series, and subtitle as secondary evidence.
-- [ ] Do not treat same title/author as automatically the same edition.
+- [ ] Extend current conflict penalties to format/edition evidence.
+- [ ] Penalize audiobook-only result while processing EPUB where a book edition exists.
+- [ ] Use publication year/publisher/series/subtitle as secondary evidence.
+- [ ] Never assume same title+author means same edition.
 
-## C. Confidence safeguards — #42 and explain-score #44
+## C. Explainable confidence — expanded #42/#44
 
 - [ ] Move scoring into explicit positive/negative components.
-- [ ] Preserve exact valid ISBN as strongest signal.
-- [ ] Add strong negative signals for conflicting identifiers/authors/languages/formats.
-- [ ] Add human-readable score breakdown.
-- [ ] Add regression fixtures for intentionally ambiguous titles.
-- [ ] Verify a title-only exact match cannot become “exact edition” without additional evidence.
+- [ ] Human-readable score breakdown.
+- [ ] Add ambiguous-title fixtures.
+- [ ] Ensure title-only exact match cannot imply exact edition without evidence.
+- [ ] Add confidence class that honors hard conflicts rather than score alone.
 
 ## D. Current vs proposed comparison — #10
 
-- [ ] Show current KOReader values beside proposed values.
-- [ ] Indicate unchanged, added, replaced, and unavailable fields.
+- [ ] Show existing KOReader values beside proposed values.
+- [ ] Mark unchanged/added/replaced/unavailable fields.
 - [ ] Display provider provenance for proposed fields.
-- [ ] Keep the display readable on e-ink screens.
+- [ ] Keep readable on e-ink screens.
 
 ## E. Select fields at apply time — #11
 
-- [ ] Start with global field defaults.
-- [ ] Allow per-book override before Apply.
-- [ ] Include independent `Cover` toggle.
-- [ ] Preserve the global defaults after a one-off override unless the user chooses `Save as defaults`.
+- [ ] Start with global defaults.
+- [ ] Per-book override before Apply.
+- [ ] Independent Cover toggle.
+- [ ] Optional `Save as defaults` rather than silently changing global settings.
 
-## F. Undo — #12
+## F. Undo/history — #12/#13
 
-- [ ] Snapshot custom metadata before each mutation.
-- [ ] Snapshot existing custom cover path/content safely.
-- [ ] Add `Undo last metadata update` per book.
-- [ ] Restore prior sidecar metadata atomically where possible.
-- [ ] Restore prior cover.
-- [ ] Record undo success/failure in history.
-- [ ] Never discard the only backup before the new write is known-good.
+- [ ] Snapshot custom metadata before mutation.
+- [ ] Snapshot existing custom cover safely.
+- [ ] `Undo last metadata update` per book.
+- [ ] Restore metadata and cover atomically where possible.
+- [ ] Record bounded revision history with source/score/fields/plugin version.
+- [ ] Never discard the only backup before replacement is known-good.
 
-## G. Metadata history — #13
+## G. Refresh exact record — #1
 
-- [ ] Retain a bounded number of revisions per book.
-- [ ] Store timestamp, source/provider, score, fields changed, and plugin version.
-- [ ] Cap history size to avoid uncontrolled settings growth.
-- [ ] Add `View metadata history`.
+- [ ] Provider `get_by_id`/detail capability where available.
+- [ ] Refresh saved provider record before fuzzy search.
+- [ ] Stale provider ID offers a new search instead of silently picking another edition.
+- [ ] `Refresh metadata`.
+- [ ] `Refresh cover only`.
+- [ ] Preview material changes.
 
-## H. Refresh exact record — #1
+## H. Batch preview/review — #14/#15
 
-- [ ] Add provider `get_by_id`/detail capability where available.
-- [ ] Refresh using saved provider ID before fuzzy search.
-- [ ] If provider ID is invalid/stale, offer a new search rather than silently selecting another edition.
-- [ ] Add `Refresh metadata`.
-- [ ] Add `Refresh cover only`.
-- [ ] Show current vs refreshed values before committing if changes are material.
+- [ ] Discovery phase performs no writes.
+- [ ] Group high-confidence/borderline/unmatched/failed.
+- [ ] Present counts before apply.
+- [ ] Allow high-confidence-only apply.
+- [ ] Borderline review supports Apply/Skip/Search again/Stop.
+- [ ] Cancel preview with zero writes.
 
-## I. Batch preview — #14
+## I. Batch resume/skip/report — #23/#18/#16
 
-- [ ] Search first; do not write while discovering matches.
-- [ ] Group results into high-confidence, borderline, unmatched, and failed.
-- [ ] Present counts before applying.
-- [ ] Allow applying only the high-confidence group.
-- [ ] Allow cancelling with zero writes.
-- [ ] Persist enough state to resume review without repeating all searches when practical.
+- [ ] Persist batch identity/completed files.
+- [ ] Recover after Wi-Fi loss/restart.
+- [ ] Avoid duplicate writes.
+- [ ] Default skip books with valid provenance.
+- [ ] Optional refresh-existing mode.
+- [ ] Save sanitized report with filename/title/source/score/status/error.
 
-## J. Borderline review — #15
+## J. Threshold presets and recursion — #45/#17
 
-- [ ] Define a default borderline range (for example 70–89) separately from the automatic threshold.
-- [ ] Step through candidates one book at a time.
-- [ ] Allow `Apply`, `Skip`, `Search again`, and `Stop review`.
-
-## K. Batch resume — #23
-
-- [ ] Persist current batch identity and completed files.
-- [ ] Recover after Wi-Fi loss or KOReader restart.
-- [ ] Avoid duplicating writes to already-completed books.
-- [ ] Add `Discard saved batch`.
-
-## L. Skip already matched — #18
-
-- [ ] Default option to skip books with valid existing plugin provenance.
-- [ ] Optional `Refresh previously matched` mode.
-- [ ] Future option: refresh only matches older than N days.
-
-## M. Batch summary/export — #16
-
-- [ ] Include filename, selected title, source, score, status, and error.
-- [ ] Save a sanitized text/JSON report under plugin cache/export location.
-- [ ] Do not include credentials or full API responses.
-
-## N. Threshold presets — #45
-
-- [ ] Strict preset (e.g. 95%).
-- [ ] Recommended preset (90%).
-- [ ] Permissive preset (80%) with a warning.
-- [ ] Preserve custom numeric threshold for advanced users.
-
-## O. Optional recursive batch — #17
-
-- [ ] Remain disabled by default.
-- [ ] Explicitly show number of folders/files before starting.
-- [ ] Preserve a hard upper bound.
-- [ ] Avoid following symlinks or looping directory structures.
-- [ ] Require batch preview before any recursive writes.
+- [ ] Strict 95 / Recommended 90 / Permissive 80-with-warning presets.
+- [ ] Preserve custom threshold.
+- [ ] Recursive batch remains off by default.
+- [ ] Preview folder/file count and enforce hard upper bound.
+- [ ] Avoid symlink loops.
+- [ ] Require preview before recursive writes.
 
 ---
 
@@ -337,116 +338,58 @@ Before refresh/undo, define a stable record per matched file:
 
 Primary roadmap IDs: #2, #40, #41, #7, #19, #5, #37, #43, #8, #36, #38, #3, #9, #39, #4, #21.
 
-## A. Multi-source metadata merging — #2
+## A. Normalized metadata and source merging — #2/#3
 
-- [ ] Introduce a normalized internal metadata record independent of provider payload shape.
-- [ ] Track field-level provenance (`title from Hardcover`, `description from Google`, etc.).
-- [ ] Merge only records that are confidently the same work/edition.
-- [ ] Never use a lower-confidence duplicate to overwrite a stronger non-empty field without a rule.
-- [ ] Prefer edition-compatible cover/ISBN/date fields.
-- [ ] Expose merge provenance in preview.
+- [ ] Provider-independent normalized record.
+- [ ] Track field-level provenance.
+- [ ] Merge only confidently identical work/edition records.
+- [ ] Never let lower-confidence duplicate overwrite stronger populated field without rule.
+- [ ] Global/per-field provider preferences with `Best available` default.
 
-## B. Per-field source preference — #3
+## B. Title/author/role normalization — #7/#40/#41
 
-- [ ] Global source preference order.
-- [ ] Optional per-field preferences for title/series/description/genres/cover.
-- [ ] `Best available` default.
-- [ ] Fallback when preferred provider lacks the field.
+- [ ] Conservative title whitespace/punctuation cleanup.
+- [ ] Safe removal of obvious format labels/repeated series suffixes.
+- [ ] `Surname, Given` vs `Given Surname` comparison normalization.
+- [ ] Initial/multi-author handling.
+- [ ] Separate author/editor/translator/illustrator/narrator roles where exposed.
+- [ ] Never replace stored author solely with comparison-normalized text.
 
-## C. Title cleaning — #7
+## C. Search cache — #19
 
-- [ ] Normalize whitespace and punctuation conservatively.
-- [ ] Remove obvious format labels such as `[Kindle Edition]` only when safe.
-- [ ] Handle repeated series suffixes.
-- [ ] Keep original query visible and allow disabling cleanup.
-- [ ] Test punctuation-heavy and subtitle-heavy titles.
+- [ ] Cache normalized query+provider+relevant settings for short TTL.
+- [ ] Do not long-cache auth errors.
+- [ ] Keep cooldown state separate.
+- [ ] Invalidate when provider/account settings change.
 
-## D. Author normalization — #40 and roles #41
+## D. Cover quality/chooser — #5/#4
 
-- [ ] Normalize `Surname, Given` vs `Given Surname` for comparison only.
-- [ ] Handle initials conservatively.
-- [ ] Handle multiple authors.
-- [ ] Separate author from editor/translator/illustrator/narrator roles where providers expose them.
-- [ ] Do not overwrite stored author strings solely with normalized comparison strings.
-
-## E. Search cache — #19
-
-- [ ] Cache normalized query + provider + relevant settings.
-- [ ] Set short TTL (5–30 minutes).
-- [ ] Do not cache authentication failures for long periods.
-- [ ] Respect provider cooldown state separately.
-- [ ] Add cache invalidation when provider/account settings change.
-
-## F. Cover quality and chooser — #5 and #4
-
-- [ ] Collect candidate cover URLs from deduplicated provider records.
+- [ ] Collect cover candidates from deduplicated results.
 - [ ] Record dimensions/file size where discoverable.
-- [ ] Prefer larger valid images with sensible book-cover aspect ratio.
-- [ ] Reject placeholders and invalid payloads.
-- [ ] Add optional chooser showing source and dimensions.
-- [ ] Keep `Best automatically` as a simple default.
+- [ ] Prefer larger valid edition-compatible covers with sensible aspect ratio.
+- [ ] Reject placeholders.
+- [ ] Optional source/dimension chooser.
+- [ ] `Best automatically` simple default.
 
-## G. Description cleanup — #37
+## E. Description/genre/language normalization — #37/#38/#39
 
-- [ ] Strip/normalize HTML safely.
-- [ ] Normalize excessive whitespace.
-- [ ] Preserve paragraph boundaries where KOReader supports them.
-- [ ] Avoid provider boilerplate when reliably identifiable.
-- [ ] Optional maximum-length policy if extremely long descriptions cause UI/sidecar problems.
+- [ ] Safe HTML/whitespace cleanup for descriptions.
+- [ ] Deduplicate genre case/punctuation variants and cap excessive subject lists.
+- [ ] Expand ISO 639 mappings and normalize locale variants for matching.
+- [ ] Retain raw values in provenance where useful.
 
-## H. Confidence classes — #43
+## F. Series/confidence/additional fields — #8/#43/#36
 
-- [ ] Map scores/evidence to `Exact`, `Strong`, `Possible`, `Weak`.
-- [ ] Do not derive class from numeric score alone when a hard conflict exists.
-- [ ] Display class alongside score.
+- [ ] Normalize series names/indexes including decimals.
+- [ ] Confidence classes `Exact/Strong/Possible/Weak` honoring conflicts.
+- [ ] Evaluate publisher/date/identifiers/page count/original title/format against KOReader-native support.
+- [ ] Unsupported values remain in provenance rather than being forced into sidecars.
 
-## I. Series intelligence — #8
+## G. Search controls/provider priority — #9/#21
 
-- [ ] Normalize series names for comparison.
-- [ ] Parse integer and decimal series indices.
-- [ ] Penalize conflicting series/volume evidence.
-- [ ] Prefer provider record with edition-compatible series information.
-
-## J. Additional fields — #36
-
-Evaluate KOReader-native support before storing new fields:
-
-- [ ] publisher;
-- [ ] publication date;
-- [ ] identifiers/ISBN;
-- [ ] page count;
-- [ ] original title;
-- [ ] edition/format.
-
-Unsupported values may remain in plugin provenance rather than being forced into KOReader custom metadata.
-
-## K. Genre normalization — #38
-
-- [ ] Deduplicate case/punctuation variants.
-- [ ] Map a small curated set of obvious synonyms.
-- [ ] Cap excessive Open Library subjects.
-- [ ] Keep raw provider tags available in provenance for debugging.
-
-## L. Language normalization — #39
-
-- [ ] Expand ISO 639-1/2 mappings.
-- [ ] Normalize locale variants (`en-US` → `en` for matching while retaining raw value if useful).
-- [ ] Penalize conflicting languages for edition selection.
-
-## M. Quick search controls — #9
-
-- [ ] `ISBN only`.
-- [ ] `Title + author`.
-- [ ] `Title only`.
-- [ ] `Cleaned title`.
-- [ ] `Choose provider`.
-- [ ] Preserve current search fields while switching modes.
-
-## N. Provider priority — #21
-
-- [ ] Configurable provider order.
-- [ ] Use order only as tie-break/preference, not as permission to ignore stronger evidence.
-- [ ] Integrate with per-field preferences later.
+- [ ] ISBN only / title+author / title only / cleaned title / choose provider quick actions.
+- [ ] Preserve search fields while switching mode.
+- [ ] Configurable provider order used as tie-break, not substitute for evidence.
 
 ---
 
@@ -460,107 +403,98 @@ This feature is intentionally delayed until provenance and undo are reliable bec
 
 ### Rename model
 
-- [ ] Build a template engine with placeholders such as `{title}`, `{author}`, `{series}`, `{series_index}`, `{year}`, `{isbn}`.
-- [ ] Ship conservative presets:
-  - [ ] `{title}.epub`
-  - [ ] `{author} - {title}.epub`
-  - [ ] `{series} {series_index} - {title}.epub`
-  - [ ] `{author}/{series}/{series_index} - {title}.epub`
-- [ ] Support zero-padding (`01`, `02`) without breaking decimal volumes (`3.5`).
-- [ ] Preserve the original file extension.
+- [ ] Template engine: `{title}`, `{author}`, `{series}`, `{series_index}`, `{year}`, `{isbn}`.
+- [ ] Conservative presets: `{title}.epub`, `{author} - {title}.epub`, `{series} {series_index} - {title}.epub`, `{author}/{series}/{series_index} - {title}.epub`.
+- [ ] Zero-padding without breaking decimal volumes.
+- [ ] Preserve original extension.
 - [ ] Omit empty template segments cleanly.
 
 ### Filename/path safety
 
-- [ ] Sanitize separators, control characters, reserved names, trailing dots/spaces, and filesystem-problematic characters.
-- [ ] Enforce a conservative path/filename length.
+- [ ] Sanitize separators/control/reserved/problematic characters.
+- [ ] Conservative path/filename length.
 - [ ] Normalize repeated whitespace.
-- [ ] Never silently overwrite an existing file.
-- [ ] Detect case-only collisions where relevant.
-- [ ] Detect destination directory/file collision before moving anything.
+- [ ] Never silently overwrite.
+- [ ] Detect case-only and destination collisions before moving anything.
 
 ### Preview and confirmation
 
-- [ ] Always show `old path → new path` before a manual rename.
-- [ ] Batch rename must show a preview list before any operation.
-- [ ] Show collision/invalid-name rows separately.
-- [ ] Allow deselecting individual rename rows.
-- [ ] Default automatic metadata fetch must **not** rename a file unless the user explicitly enables that workflow.
+- [ ] Always show `old path → new path`.
+- [ ] Batch preview before operations.
+- [ ] Separate collision/invalid rows.
+- [ ] Allow deselecting rows.
+- [ ] Ordinary metadata fetch never renames unless explicitly enabled.
 
 ### KOReader sidecar/history preservation
 
-- [ ] Use KOReader-supported location/update mechanisms where possible instead of a blind `os.rename`.
-- [ ] Preserve `.sdr` sidecar data.
-- [ ] Preserve reading progress/history association.
-- [ ] Preserve custom metadata sidecar.
-- [ ] Preserve custom cover.
-- [ ] Preserve plugin provenance/book link under the new path.
-- [ ] Update or migrate any plugin batch/history references to the new path.
+- [ ] Use KOReader-supported relocation mechanisms where possible.
+- [ ] Preserve `.sdr`, reading progress/history, custom metadata, custom cover.
+- [ ] Migrate plugin provenance/book link and batch/history references.
 
 ### Rename transaction/undo
 
-- [ ] Preflight every source and destination.
-- [ ] Perform filesystem move and KOReader sidecar relocation as a transaction-like sequence.
-- [ ] Record original path and destination in rename history.
-- [ ] Add `Undo last rename`.
-- [ ] If sidecar relocation fails after file move, attempt rollback to original path.
-- [ ] If rollback also fails, surface both paths clearly and do not delete either copy.
+- [ ] Preflight every source/destination.
+- [ ] Transaction-like file + sidecar relocation.
+- [ ] Record original/destination.
+- [ ] `Undo last rename`.
+- [ ] Roll back file move if sidecar relocation fails.
+- [ ] If rollback fails, surface both paths and never delete either copy silently.
 
 ### Folder organization
 
-- [ ] Optional `Move into author folder`.
-- [ ] Optional `Move into series folder`.
-- [ ] Create directories only after validation.
-- [ ] Avoid accidental nested duplicate folders.
-- [ ] Keep organization rules independent of metadata-writing rules.
+- [ ] Optional author folder.
+- [ ] Optional series folder.
+- [ ] Validate before creating directories.
+- [ ] Avoid nested duplicates.
+- [ ] Keep organization rules independent from metadata-writing rules.
 
-### Batch rename tests
+### Rename tests
 
-- [ ] duplicate destination filenames;
+- [ ] duplicate destination;
 - [ ] illegal characters;
-- [ ] extremely long title;
-- [ ] no series metadata;
+- [ ] very long title;
+- [ ] no series;
 - [ ] decimal series index;
-- [ ] Unicode author/title;
-- [ ] already correctly named file;
-- [ ] destination on read-only storage;
+- [ ] Unicode names;
+- [ ] already-correct filename;
+- [ ] read-only destination;
 - [ ] sidecar relocation failure;
-- [ ] undo after successful rename.
+- [ ] undo after success.
 
-## B. Filename parser / search bootstrap — #50
+## B. Filename parser/search bootstrap — #50
 
-- [ ] Parse common `Author - Title` filename patterns.
+- [ ] Parse common `Author - Title` patterns.
 - [ ] Parse series/volume tokens conservatively.
-- [ ] Never overwrite good embedded metadata merely because a filename parser guessed something.
-- [ ] Use parsed values as search suggestions/fallbacks.
-- [ ] Allow user to review parsed title/author before search.
+- [ ] Never overwrite good embedded metadata based on filename guess.
+- [ ] Use parsed values as suggestions/fallbacks.
+- [ ] Review parsed values before search.
 
-## C. Calibre compatibility awareness — #33
+## C. Calibre compatibility — #33
 
-- [ ] Detect useful Calibre-provided title/authors/series/identifiers where KOReader exposes them.
+- [ ] Detect useful Calibre title/authors/series/identifiers where KOReader exposes them.
 - [ ] Avoid degrading richer existing metadata.
-- [ ] Document behavior with Calibre-generated EPUBs and sidecars.
-- [ ] Do not require Calibre to use the plugin.
+- [ ] Document Calibre-generated EPUB/sidecar behavior.
+- [ ] Do not require Calibre.
 
-## D. Offline/manual metadata editor — #49
+## D. Offline/manual editor — #49
 
-- [ ] Edit title/authors/series/index/language/keywords/description without network access.
-- [ ] Choose/remove a local cover.
-- [ ] Use the same undo/history infrastructure as scraped changes.
+- [ ] Edit title/authors/series/index/language/keywords/description offline.
+- [ ] Choose/remove local cover.
+- [ ] Use same undo/history infrastructure.
 
-## E. Provider ID/URL display — #31 and #32
+## E. Provider ID/URL — #31/#32
 
 - [ ] Store canonical public URL where available.
 - [ ] Show provider ID in advanced preview/diagnostics.
-- [ ] Add copy/open action only where KOReader platform support is reliable.
-- [ ] Never expose authenticated API URLs containing keys/tokens.
+- [ ] Copy/open only where platform support is reliable.
+- [ ] Never expose authenticated API URLs with keys/tokens.
 
 ## F. OPF import/export — #34
 
-- [ ] Define which metadata fields map cleanly to OPF.
-- [ ] Export without modifying the EPUB.
+- [ ] Define field mapping.
+- [ ] Export without modifying EPUB.
 - [ ] Import into KOReader custom metadata with preview.
-- [ ] Preserve provenance indicating OPF/manual source.
+- [ ] Preserve OPF/manual provenance.
 - [ ] Avoid clobbering richer data without confirmation.
 
 ---
@@ -569,159 +503,140 @@ This feature is intentionally delayed until provenance and undo are reliable bec
 
 Primary roadmap ID: #52.
 
-Audiobooks require a format/edition model rather than an `isEpub()` extension check. The first audiobook milestone should focus on discovery, matching, metadata sidecars/provenance, covers, and safe organization—not playback or destructive media-tag writes.
+Audiobooks require a format/edition model rather than an `isEpub()` extension check. The first milestone focuses on discovery, matching, metadata/provenance, covers, and safe organization—not playback or destructive media-tag writes.
 
 ## A. Architecture
 
-- [ ] Replace EPUB-only assumptions with a media-kind abstraction: `ebook`, `audiobook-single`, `audiobook-folder`.
-- [ ] Keep ebook behavior unchanged behind the abstraction.
-- [ ] Add format capability checks rather than scattering extension checks through the UI.
-- [ ] Define normalized `BookWork` and `Edition` concepts.
-- [ ] Define audiobook-specific fields: narrator, duration, abridged state, audio format, track count.
-- [ ] Keep provider-specific raw payloads isolated in provider modules.
+- [ ] Replace EPUB-only assumptions with media-kind abstraction: `ebook`, `audiobook-single`, `audiobook-folder`.
+- [ ] Keep ebook behavior unchanged behind abstraction.
+- [ ] Capability checks instead of scattered extension tests.
+- [ ] Normalized `BookWork` and `Edition` concepts.
+- [ ] Audiobook fields: narrator, duration, abridged state, audio format, track count.
+- [ ] Provider raw payloads remain isolated.
 
 ## B. Supported formats — first milestone
 
-- [ ] `.m4b` single-file audiobook.
-- [ ] `.mp3` single-file audiobook.
-- [ ] `.m4a` single-file audiobook.
-- [ ] `.ogg`/`.opus` investigated and enabled only if metadata handling is reliable.
-- [ ] Multi-track audiobook folder containing sequential audio files.
+- [ ] `.m4b`.
+- [ ] `.mp3`.
+- [ ] `.m4a`.
+- [ ] Investigate `.ogg`/`.opus` only if metadata handling is reliable.
+- [ ] Multi-track audiobook folder.
 
 ## C. Local metadata discovery
 
-- [ ] Read title/author/album/series-equivalent tags where available without modifying the file.
-- [ ] Read narrator/performer where available.
+- [ ] Read title/author/album/series-equivalent tags without modification.
+- [ ] Read narrator/performer.
 - [ ] Read duration.
-- [ ] Read embedded identifiers/ASIN/ISBN where available.
-- [ ] Read embedded cover/artwork where accessible.
-- [ ] Detect track number/disc number for folder grouping.
-- [ ] Fall back to parent-folder/filename parsing when tags are absent.
-
-If KOReader itself does not expose the required audio tags, research a lightweight compatible parser/library before adding a heavy dependency.
+- [ ] Read embedded identifiers/ASIN/ISBN.
+- [ ] Read embedded cover where accessible.
+- [ ] Detect track/disc number.
+- [ ] Fall back to parent-folder/filename parsing when tags absent.
+- [ ] If KOReader lacks required tags, research lightweight compatible parser before adding heavy dependency.
 
 ## D. Multi-track folder detection
 
-Treat a folder as one audiobook when evidence supports it.
-
-- [ ] Group supported audio files in one directory.
+- [ ] Group supported audio files in one directory only with supporting evidence.
 - [ ] Detect sequential track numbering.
 - [ ] Verify common album/book title where tags exist.
 - [ ] Calculate total duration.
-- [ ] Avoid grouping unrelated music/audio files solely because they share a folder.
-- [ ] Allow user to override `Treat folder as audiobook`.
-- [ ] Store one shared provenance record for the audiobook plus per-track ordering if needed.
+- [ ] Avoid grouping unrelated music solely because it shares a folder.
+- [ ] User override `Treat folder as audiobook`.
+- [ ] One shared provenance record plus per-track ordering if needed.
 
 ## E. Audiobook matching
-
-Audiobook ranking should not reuse ebook scoring unchanged.
 
 Positive signals:
 
 - [ ] exact audiobook ASIN/provider ID;
-- [ ] exact valid ISBN when edition-appropriate;
-- [ ] exact title;
-- [ ] author match;
-- [ ] narrator match;
-- [ ] duration within a tolerance;
+- [ ] edition-appropriate exact ISBN;
+- [ ] title;
+- [ ] author;
+- [ ] narrator;
+- [ ] duration tolerance;
 - [ ] language;
-- [ ] series and volume;
+- [ ] series/volume;
 - [ ] audio format/edition label;
 - [ ] abridged/unabridged state.
 
 Negative signals:
 
-- [ ] conflicting narrator when narrator is known;
+- [ ] conflicting narrator;
 - [ ] materially different duration;
 - [ ] conflicting language;
-- [ ] ebook/paperback-only edition when an audiobook edition is expected;
-- [ ] dramatized/full-cast edition mismatch;
+- [ ] ebook/paperback-only edition when audiobook expected;
+- [ ] dramatized/full-cast mismatch;
 - [ ] abridged/unabridged conflict.
 
-## F. Provider work for audiobooks
+## F. Provider audit
 
-- [ ] Audit Hardcover audiobook/edition fields.
-- [ ] Audit Amazon Creators API data available for audiobook/ASIN searches.
-- [ ] Audit Google Books/Open Library usefulness for work-level fallback only.
-- [ ] Research audiobook-specific public/official APIs before adding another provider.
-- [ ] Keep provider eligibility/terms documented.
-- [ ] Add audiobook response fixtures to regression tests.
+- [ ] Hardcover audiobook/edition fields.
+- [ ] Amazon Creators API audiobook/ASIN search data.
+- [ ] Google/Open Library work-level fallback usefulness.
+- [ ] Research audiobook-specific official/public APIs before adding another provider.
+- [ ] Document terms/eligibility.
+- [ ] Add audiobook response fixtures.
 
-## G. Audiobook metadata fields
-
-Initial normalized fields:
+## G. Normalized audiobook fields
 
 - [ ] title;
 - [ ] author(s);
 - [ ] narrator(s);
-- [ ] series;
-- [ ] series index;
+- [ ] series/index;
 - [ ] language;
-- [ ] publisher;
-- [ ] publication/release date;
-- [ ] description;
-- [ ] genres;
+- [ ] publisher/date;
+- [ ] description/genres;
 - [ ] ISBN/ASIN/provider IDs;
 - [ ] duration;
-- [ ] abridged/unabridged state;
+- [ ] abridged state;
 - [ ] cover;
-- [ ] track count for folders.
+- [ ] track count.
 
 ## H. Audiobook cover workflow
 
-- [ ] Prefer edition-compatible audiobook cover over ebook cover.
+- [ ] Prefer edition-compatible audiobook cover.
 - [ ] Show source/provider.
-- [ ] Validate image as in v0.1.4 cover pipeline.
+- [ ] Reuse validated cover pipeline.
 - [ ] Preserve existing cover on failure.
-- [ ] For folder audiobooks, define a shared cover location without modifying every track.
+- [ ] Define shared cover location for folder audiobook without rewriting every track.
 
 ## I. Audiobook file/folder renaming
 
-Reuse the safe rename engine from v0.2.2.
+Reuse v0.2.2 safe rename engine.
 
-Suggested templates:
-
-- [ ] `{author} - {title}.m4b`
-- [ ] `{series} {series_index} - {title}.m4b`
-- [ ] `{author}/{series}/{series_index} - {title}/`
-
-For multi-track folders:
-
-- [ ] rename parent folder independently from tracks;
-- [ ] preserve original track ordering;
-- [ ] optional track template such as `{track:02} - {title}.mp3`;
-- [ ] do not rename tracks automatically merely because parent folder metadata was scraped;
-- [ ] preview every affected path before commit;
-- [ ] support undo across the entire rename set.
+- [ ] `{author} - {title}.m4b`.
+- [ ] `{series} {series_index} - {title}.m4b`.
+- [ ] `{author}/{series}/{series_index} - {title}/`.
+- [ ] Parent folder rename independent from tracks.
+- [ ] Preserve track ordering.
+- [ ] Optional `{track:02} - {title}.mp3` template.
+- [ ] No automatic track rename solely because metadata was scraped.
+- [ ] Preview every affected path.
+- [ ] Undo entire rename set.
 
 ## J. Ebook ↔ audiobook linking — later sub-milestone
 
-- [ ] Detect same underlying work across EPUB and audiobook records.
+- [ ] Detect same underlying work.
 - [ ] Share work-level title/author/series/genres.
-- [ ] Keep edition-specific cover, narrator, duration, format, identifiers, and dates separate.
+- [ ] Keep cover/narrator/duration/format/identifiers/dates edition-specific.
 - [ ] Never assume same title+author means same edition.
 
 ## K. Direct audio tag writing — explicitly deferred
 
-Do not include in the first audiobook release.
+Before source-file modification:
 
-Before enabling any source-file modification:
-
-- [ ] establish reliable tag-writing library support on KOReader targets;
-- [ ] create full-file or tag-level backup strategy;
-- [ ] test M4B chapter preservation;
-- [ ] test MP3 ID3 preservation;
-- [ ] test embedded cover replacement;
-- [ ] provide explicit opt-in confirmation;
-- [ ] provide rollback on failure;
-- [ ] ensure normal metadata scraping remains non-destructive by default.
+- [ ] reliable tag-writing library on KOReader targets;
+- [ ] full/tag backup strategy;
+- [ ] M4B chapter preservation tests;
+- [ ] MP3 ID3 preservation tests;
+- [ ] embedded cover replacement tests;
+- [ ] explicit opt-in confirmation;
+- [ ] rollback on failure;
+- [ ] normal scrape remains non-destructive default.
 
 ## L. Playback integration — optional/later
 
-Audiobook metadata support does not require the plugin to become an audiobook player.
-
-- [ ] First determine whether KOReader or a supported external player exposes a stable integration surface.
-- [ ] Keep playback state separate from metadata scraping unless a reliable integration exists.
+- [ ] Determine whether KOReader/external player exposes stable integration.
+- [ ] Keep playback state separate unless reliable integration exists.
 
 ---
 
@@ -731,41 +646,39 @@ Audiobook metadata support does not require the plugin to become an audiobook pl
 
 The current project principle is that EPUB files are not rewritten. If direct write-back is ever implemented:
 
-- [ ] keep it disabled by default;
-- [ ] create a backup first;
-- [ ] edit OPF metadata without damaging manifest/spine/navigation;
+- [ ] disabled by default;
+- [ ] backup first;
+- [ ] edit OPF without damaging manifest/spine/navigation;
 - [ ] preserve DRM-free EPUB validity;
-- [ ] validate the resulting ZIP/container;
-- [ ] provide explicit user confirmation and undo/restore;
-- [ ] never mix write-back silently into the normal `Apply` action.
+- [ ] validate resulting container;
+- [ ] explicit confirmation and restore;
+- [ ] never mix write-back silently into normal Apply.
 
 ---
 
 # Dependency map
 
-High-level dependencies that should influence implementation order even when roadmap scores differ:
-
-1. **Diagnostics/error isolation** → safer provider expansion and easier field testing.
-2. **Updater hashes/migrations** → safer future release complexity.
+1. **Diagnostics/error isolation** → safer provider expansion and easier field testing. Core exists in v0.1.3; persistence can deepen later.
+2. **Updater hashes/migrations** → safer future release complexity. Hash verification exists in v0.1.3; removals/settings migrations remain v0.1.4.
 3. **Provenance + exact-edition model** → refresh, history, multi-source merging, audiobook linking.
 4. **Undo/history** → batch preview automation and safe file renaming.
 5. **Normalized metadata record** → per-field source preferences and audiobook support.
 6. **Safe rename transaction** → audiobook folder/track organization.
-7. **Cover validation** → cover chooser and audiobook cover workflows.
+7. **Cover validation** → cover chooser and audiobook cover workflows. Core validation exists in v0.1.3.
 8. **Format/media abstraction** → audiobook support without destabilizing EPUB behavior.
 
 # Re-scoring policy
 
-Update the scores in `ROADMAP.md` when one of the following occurs:
+Update scores in `ROADMAP.md` when:
 
-- a real bug demonstrates higher/lower risk than assumed;
-- a provider/API change alters implementation complexity;
-- usage/issue data shows that a feature affects substantially more/fewer users;
-- a prerequisite is completed and makes another feature materially easier;
-- KOReader adds/removes a native capability that changes feasibility;
-- a proposed feature creates new source-file or privacy risk.
+- a real bug demonstrates higher/lower risk;
+- provider/API change alters complexity;
+- usage/issue data changes expected breadth;
+- prerequisite completion makes another feature materially easier;
+- KOReader adds/removes native capability;
+- proposed feature creates new source-file/privacy risk.
 
-When scores tie, prefer the item with, in order:
+When scores tie, prefer in order:
 
 1. higher Risk Reduction;
 2. higher User Impact;
