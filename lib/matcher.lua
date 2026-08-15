@@ -12,6 +12,9 @@ local function add_reason(reasons, label)
 end
 
 function M.score(query, r)
+    query = type(query) == "table" and query or {}
+    r = type(r) == "table" and r or {}
+
     local reasons = {}
     if isbn_matches(query, r) then
         add_reason(reasons, "ISBN exact")
@@ -129,13 +132,23 @@ end
 
 function M.rank(query, results, source_priority)
     source_priority = source_priority or {}
+    if type(results) ~= "table" then return {} end
+
+    -- Treat every provider result as untrusted input. A malformed record should be
+    -- discarded rather than preventing healthy provider results from being shown.
+    local valid = {}
     for _, r in ipairs(results) do
-        local score, reasons = M.score(query, r)
-        r.score = score
-        r.match_reasons = reasons
+        if type(r) == "table" then
+            local ok, score, reasons = pcall(M.score, query, r)
+            if ok and type(score) == "number" then
+                r.score = score
+                r.match_reasons = type(reasons) == "table" and reasons or {}
+                table.insert(valid, r)
+            end
+        end
     end
 
-    table.sort(results, function(a, b)
+    table.sort(valid, function(a, b)
         if a.score ~= b.score then return a.score > b.score end
         local pa = source_priority[a.source] or 99
         local pb = source_priority[b.source] or 99
@@ -144,13 +157,18 @@ function M.rank(query, results, source_priority)
     end)
 
     local deduped, by_key = {}, {}
-    for _, r in ipairs(results) do
-        local key = dedupe_key(r)
-        local primary = by_key[key]
-        if primary then
-            merge_missing(primary, r)
+    for _, r in ipairs(valid) do
+        local ok, key = pcall(dedupe_key, r)
+        if ok and key then
+            local primary = by_key[key]
+            if primary then
+                pcall(merge_missing, primary, r)
+            else
+                by_key[key] = r
+                table.insert(deduped, r)
+            end
         else
-            by_key[key] = r
+            -- A valid scored result with an unexpected dedupe shape is still useful.
             table.insert(deduped, r)
         end
     end
