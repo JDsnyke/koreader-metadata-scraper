@@ -11,6 +11,12 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Preserved an existing KOReader custom cover if replacement of the cover fails.
 - Added clearer per-provider errors/counts when a search returns no matches.
 - Added one broader title-only fallback when a strict title + author search returns no results.
+- **Expedited from the v0.1.4 hardening roadmap:** GET requests and downloads now retry once for network failures and HTTP 502/503/504 only. Generic retries deliberately do not retry HTTP 429, authentication failures, or ordinary POST requests.
+- Added cover validation before replacement: downloaded covers must be large enough to be plausible images and have a recognized JPEG, PNG, WebP, or GIF signature. Known non-image content types are rejected.
+- Metadata and custom-cover writes are isolated with protected calls so unexpected KOReader-side exceptions become controlled failures instead of propagating through the plugin.
+- Malformed provider result records are discarded during ranking rather than preventing valid results from other providers from being shown.
+- Added a sanitized diagnostics core with a bounded in-memory event buffer, URL query redaction, credential redaction, and support-bundle generation. Configured tokens, API keys, Amazon secrets, credential IDs, and partner tags are never intentionally emitted by the diagnostics bundle.
+- HTTP failures/retries are recorded using sanitized URLs with query strings removed.
 
 ### Hardcover
 
@@ -45,6 +51,7 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - KOReader EPUB `identifiers` metadata is now inspected automatically for ISBN-10 and ISBN-13 values.
 - Detected ISBNs pre-fill the manual search form and are used automatically in batch mode.
 - ISBN-10 is canonicalized to its ISBN-13 equivalent for comparison and deduplication.
+- ISBN candidates are checksum-validated before being treated as exact identifiers.
 - Results found by multiple providers are deduplicated by canonical ISBN where possible, with normalized title + author as a fallback.
 - Missing useful fields from duplicate provider results may be merged into the preferred result.
 - The UI shows when the same book was also found on other providers.
@@ -58,31 +65,38 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Every Lua file is syntax-checked with `luac5.1 -p`.
 - Added regression coverage for:
   - central versioning and stale-version detection
-  - EPUB ISBN extraction
+  - EPUB ISBN extraction and checksum validation
   - ISBN-10/ISBN-13 canonicalization
   - cross-provider deduplication
+  - malformed provider-result isolation
   - Hardcover Bearer normalization
   - Hardcover Typesense result normalization
   - Amazon credential-version token endpoints and token caching
   - Amazon one-time token refresh after HTTP 401
   - Google Books HTTP 429 / `Retry-After` cooldown
+  - cautious transient HTTP retry policy
+  - image-signature cover validation
   - safe custom-cover rollback
+  - controlled writer failures
+  - diagnostics credential redaction and support-bundle generation
 
 ### Configuration note for Amazon users
 
 Existing installations can leave `amazon_credential_version` blank temporarily; the plugin will use its legacy marketplace-based inference. For a new or updated configuration, save the credential version shown for the Amazon Creators API credential (`3.1`, `3.2`, or `3.3`) so authentication does not depend on the selected marketplace.
 
-### Deferred beyond 0.1.3
+### Still deferred beyond 0.1.3
 
-The following ideas are intentionally not part of this reliability branch yet:
+The following larger ideas remain outside this reliability branch for now:
 
-- shared transient HTTP retry policy
-- short-lived search-result cache
 - per-file SHA-256 validation in update manifests
-- updater support for explicitly removed files
+- updater support for explicitly removed files/settings migrations
 - interactive review of borderline batch matches
 - richer per-book batch report
 - series/provider preference memory
-- direct "Refresh metadata" using a previously saved provider record
+- direct `Refresh metadata` using a previously saved provider record
+- full persistent diagnostic log UI / copy-export workflow
+- provider-specific request pacing beyond existing provider cooldown handling
+- safe file renaming and library organization
+- audiobook metadata support
 
-These should be evaluated separately after v0.1.3 has been tested on-device.
+These should be evaluated separately after v0.1.3 has been tested on-device, although bounded hardening work may continue to be pulled forward where it reduces release risk without expanding destructive behavior.
