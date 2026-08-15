@@ -17,6 +17,11 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Malformed provider result records are discarded during ranking rather than preventing valid results from other providers from being shown.
 - Added a sanitized diagnostics core with a bounded in-memory event buffer, URL query redaction, credential redaction, and support-bundle generation. Configured tokens, API keys, Amazon secrets, credential IDs, and partner tags are never intentionally emitted by the diagnostics bundle.
 - HTTP failures/retries are recorded using sanitized URLs with query strings removed.
+- Added **Save support diagnostics…** to the plugin UI. It writes a sanitized support file under KOReader's Metadata Scraper cache directory and reports the path to the user.
+- Provider-test failures, provider-search failures, updater failures, KOReader metadata-read failures, metadata-write failures, and cover-write failures now feed the sanitized diagnostics buffer.
+- Added SHA-256 verification to the updater using KOReader's bundled `ffi/sha2` implementation. Future release manifests must provide a valid SHA-256 for every staged runtime payload except the control `update.json` itself.
+- Updater payloads are verified immediately after download and re-verified immediately before installation. A missing hash, malformed digest, download mismatch, or staged-file change aborts before installed files are modified.
+- The updater stages the exact fetched `update.json` response body rather than downloading the control manifest a second time, avoiding a self-referential manifest hash requirement.
 
 ### Hardcover
 
@@ -56,7 +61,10 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Missing useful fields from duplicate provider results may be merged into the preferred result.
 - The UI shows when the same book was also found on other providers.
 - Match previews now show human-readable match reasons such as exact ISBN, exact title, author match, language, series, and year signals.
-- Series and publication-year signals can contribute small confidence adjustments without replacing title/author/ISBN as the primary matching inputs.
+- Added explicit **conflict safeguards** for contradictory ISBN, author, language, series, and publication-year evidence.
+- A candidate carrying a valid ISBN that conflicts with the user's/query EPUB ISBN is capped far below the default automatic batch threshold even when title and author are exact.
+- Strong author, language, series, and year conflicts reduce confidence instead of being silently ignored.
+- Exact ISBN remains authoritative when it matches.
 - Saved book-link provenance now records the Metadata Scraper plugin version.
 
 ### Testing and development
@@ -69,6 +77,7 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
   - ISBN-10/ISBN-13 canonicalization
   - cross-provider deduplication
   - malformed provider-result isolation
+  - ISBN/author/language/series conflict safeguards
   - Hardcover Bearer normalization
   - Hardcover Typesense result normalization
   - Amazon credential-version token endpoints and token caching
@@ -79,22 +88,26 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
   - safe custom-cover rollback
   - controlled writer failures
   - diagnostics credential redaction and support-bundle generation
+  - updater SHA-256 success, mismatch aborts, missing-hash rejection, and manifest validation
 
 ### Configuration note for Amazon users
 
 Existing installations can leave `amazon_credential_version` blank temporarily; the plugin will use its legacy marketplace-based inference. For a new or updated configuration, save the credential version shown for the Amazon Creators API credential (`3.1`, `3.2`, or `3.3`) so authentication does not depend on the selected marketplace.
 
+### Release-manifest note
+
+The v0.1.3 updater now expects **future target releases** to include a `sha256` map in `update.json`. Each runtime path in `files` except `update.json` itself must have a 64-character SHA-256 digest. The final release process must generate and verify these hashes before a tag is published.
+
 ### Still deferred beyond 0.1.3
 
 The following larger ideas remain outside this reliability branch for now:
 
-- per-file SHA-256 validation in update manifests
 - updater support for explicitly removed files/settings migrations
 - interactive review of borderline batch matches
 - richer per-book batch report
 - series/provider preference memory
 - direct `Refresh metadata` using a previously saved provider record
-- full persistent diagnostic log UI / copy-export workflow
+- persistent cross-restart diagnostic logging / direct clipboard export
 - provider-specific request pacing beyond existing provider cooldown handling
 - safe file renaming and library organization
 - audiobook metadata support
