@@ -1,0 +1,43 @@
+name: Repair and update main.lua
+
+on:
+  push:
+    branches:
+      - agent/google-429-updater
+
+permissions:
+  contents: write
+
+jobs:
+  repair-main:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/google-429-updater
+          fetch-depth: 0
+
+      - name: Restore known-good v0.1.0 main.lua and apply v0.1.1 patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://github.com/JDsnyke/koreader-metadata-scraper/releases/download/v0.1.0/metadata_scraper_koreader_v0.1.0.zip \
+            -o /tmp/metadata-scraper-v0.1.0.zip
+          unzip -p /tmp/metadata-scraper-v0.1.0.zip metadata_scraper.koplugin/main.lua > main.lua
+          git apply main-v0.1.1.patch
+          grep -q 'local Updater = require("lib/updater")' main.lua
+          grep -q 'Metadata Scraper 0.1.1' main.lua
+          ! grep -q 'DEFAUL_ORDER' main.lua
+
+      - name: Commit repaired main.lua
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add main.lua
+          git diff --cached --quiet && exit 0
+          git commit -m 'Wire update checks into plugin UI'
+          git push origin HEAD:agent/google-429-updater
