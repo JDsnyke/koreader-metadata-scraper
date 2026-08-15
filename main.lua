@@ -19,6 +19,7 @@ local Matcher = require("lib/matcher")
 local Writer = require("lib/writer")
 local HTTP = require("lib/http")
 local Updater = require("lib/updater")
+local Version = require("lib/version")
 
 local PROVIDERS = {
     hardcover = require("providers/hardcover"),
@@ -35,6 +36,7 @@ local DEFAULTS = {
     google_api_key = "",
     amazon_client_id = "",
     amazon_client_secret = "",
+    amazon_credential_version = "",
     amazon_partner_tag = "",
     amazon_marketplace = "www.amazon.com.au",
     amazon_search_index = "Books",
@@ -107,7 +109,6 @@ end
 function MetadataScraper:onFlushSettings()
     self:saveSettings()
 end
-
 
 function MetadataScraper:maybeCheckForUpdates()
     if not self.settings.auto_update_check then return end
@@ -378,6 +379,7 @@ function MetadataScraper:showQuickSettings()
         buttons = {
             {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() UIManager:close(dialog); self:showSourceSelector() end }},
             {{ text = _("Providers"), align = "left", callback = function() UIManager:close(dialog); self:showProviderDialog() end }},
+            {{ text = _("Test provider connections…"), align = "left", callback = function() UIManager:close(dialog); self:testProviders() end }},
             {{ text = _("Metadata fields"), align = "left", callback = function() UIManager:close(dialog); self:showFieldDialog() end }},
             {{ text = _("Write mode") .. ": " .. replace, align = "left", callback = function()
                 self.settings.replace_existing = not self.settings.replace_existing; self:saveSettings()
@@ -476,6 +478,7 @@ function MetadataScraper:editAmazon()
         fields = {
             { text = self.settings.amazon_client_id or "", hint = _("Credential ID") },
             { text = self.settings.amazon_client_secret or "", hint = _("Credential secret"), text_type = "password" },
+            { text = self.settings.amazon_credential_version or "", hint = _("Credential version (3.1 / 3.2 / 3.3)") },
             { text = self.settings.amazon_partner_tag or "", hint = _("Partner Tag") },
         },
         buttons = {{
@@ -484,8 +487,10 @@ function MetadataScraper:editAmazon()
                 local f = dlg:getFields()
                 self.settings.amazon_client_id = f[1] or ""
                 self.settings.amazon_client_secret = f[2] or ""
-                self.settings.amazon_partner_tag = f[3] or ""
-                self.settings.enabled.amazon = U.nonempty(f[1]) and U.nonempty(f[2]) and U.nonempty(f[3])
+                self.settings.amazon_credential_version = U.trim(f[3] or "")
+                self.settings.amazon_partner_tag = f[4] or ""
+                self.settings.enabled.amazon = U.nonempty(f[1]) and U.nonempty(f[2]) and U.nonempty(f[4])
+                if PROVIDERS.amazon.reset_token_cache then PROVIDERS.amazon.reset_token_cache() end
                 self:saveSettings(); UIManager:close(dlg)
             end },
         }},
@@ -493,21 +498,55 @@ function MetadataScraper:editAmazon()
     UIManager:show(dlg); dlg:onShowKeyboard()
 end
 
+function MetadataScraper:testProviders()
+    NetworkMgr:runWhenOnline(function()
+        local busy = InfoMessage:new{ text = _("Testing metadata providers…") }
+        UIManager:show(busy); UIManager:forceRePaint()
+        local lines = {}
+        for _, id in ipairs(DEFAULT_ORDER) do
+            local provider = PROVIDERS[id]
+            local good, detail
+            if type(provider.test) == "function" then
+                local ok, result, message = pcall(provider.test, self.settings)
+                if ok then
+                    good, detail = result == true, message
+                else
+                    good, detail = false, tostring(result)
+                end
+            else
+                good, detail = false, _("No diagnostic available")
+            end
+            table.insert(lines, string.format("%s %s — %s",
+                good and "✓" or "✗", provider.label, tostring(detail or (good and _("OK") or _("Failed")))))
+        end
+        UIManager:close(busy)
+        UIManager:show(InfoMessage:new{ text = table.concat(lines, "\n") })
+    end)
+end
+
 function MetadataScraper:showSearchForm(file, raw, props)
     local dlg
     local authors = (props.authors or ""):gsub("\n", ", ")
+    local isbn10, isbn13 = U.extract_isbns(props.identifiers or raw.identifiers)
+    local detected_isbn = isbn13 or isbn10 or ""
     dlg = MultiInputDialog:new{
         title = _("Fetch book metadata"),
         fields = {
             { text = props.title or "", hint = _("Title") },
             { text = authors, hint = _("Author") },
-            { text = "", hint = _("ISBN-10 or ISBN-13") },
+            { text = detected_isbn, hint = _("ISBN-10 or ISBN-13") },
         },
         buttons = {{
             { text = _("Cancel"), id = "close", callback = function() UIManager:close(dlg) end },
             { text = _("Search"), callback = function()
                 local f = dlg:getFields()
-                local q = { title = U.trim(f[1] or ""), author = U.trim(f[2] or ""), isbn = U.clean_isbn(f[3]), language = props.language }
+                local q = {
+                    title = U.trim(f[1] or ""),
+                    author = U.trim(f[2] or ""),
+                    isbn = U.clean_isbn(f[3]),
+                    language = props.language,
+                    series = props.series,
+                }
                 if q.title == "" and q.author == "" and not q.isbn then
                     UIManager:show(InfoMessage:new{ text = _("Enter a title, author, or ISBN.") }); return
                 end
@@ -539,33 +578,55 @@ function MetadataScraper:sourcePriority()
 end
 
 function MetadataScraper:searchProviders(query)
-    local results, errors = {}, {}
+    local results, errors, counts = {}, {}, {}
     for _, id in ipairs(self:providerOrder()) do
         local enabled = self.settings.enabled[id]
         if self.settings.source_scope ~= "all" then enabled = true end
         if enabled and PROVIDERS[id] then
             local ok, list, err = pcall(PROVIDERS[id].search, query, self.settings)
             if ok and type(list) == "table" then
+                -- If a strict title+author query returns nothing, retry title-only once.
+                if #list == 0 and not err and not query.isbn and U.nonempty(query.title) and U.nonempty(query.author) then
+                    local broader = U.copy(query)
+                    broader.author = ""
+                    local retry_ok, retry_list, retry_err = pcall(PROVIDERS[id].search, broader, self.settings)
+                    if retry_ok and type(retry_list) == "table" then
+                        list, err = retry_list, retry_err
+                    elseif not retry_ok then
+                        err = tostring(retry_list)
+                    end
+                end
+                counts[id] = #list
                 for _, r in ipairs(list) do table.insert(results, r) end
                 if err then errors[id] = err end
             else
+                counts[id] = 0
                 errors[id] = ok and (err or "Unknown error") or tostring(list)
             end
         end
     end
     Matcher.rank(query, results, self:sourcePriority())
-    return results, errors
+    return results, errors, counts
 end
 
 function MetadataScraper:searchOnline(file, raw, query)
     NetworkMgr:runWhenOnline(function()
         local busy = InfoMessage:new{ text = _("Searching book sources…") }
         UIManager:show(busy); UIManager:forceRePaint()
-        local results, errors = self:searchProviders(query)
+        local results, errors, counts = self:searchProviders(query)
         UIManager:close(busy)
         if #results == 0 then
             local lines = { _("No matches found.") }
-            for id, err in pairs(errors) do table.insert(lines, (PROVIDERS[id] and PROVIDERS[id].label or id) .. ": " .. tostring(err)) end
+            for _, id in ipairs(self:providerOrder()) do
+                if counts[id] ~= nil or errors[id] then
+                    local label = PROVIDERS[id] and PROVIDERS[id].label or id
+                    if errors[id] then
+                        table.insert(lines, label .. ": " .. tostring(errors[id]))
+                    else
+                        table.insert(lines, label .. ": " .. tostring(counts[id] or 0) .. " results")
+                    end
+                end
+            end
             UIManager:show(InfoMessage:new{ text = table.concat(lines, "\n") })
             return
         end
@@ -581,6 +642,9 @@ function MetadataScraper:showResults(file, raw, query, results)
         local r = results[i]
         local author = U.join(r.authors, ", ", 2)
         local secondary = r.source_label or r.source
+        if r.also_sources and #r.also_sources > 0 then
+            secondary = secondary .. " +" .. tostring(#r.also_sources)
+        end
         if r.published_date then secondary = secondary .. " · " .. tostring(r.published_date) end
         local text = tostring(r.title or _("Untitled"))
         if author ~= "" then text = text .. "\n" .. author end
@@ -605,6 +669,7 @@ end
 function MetadataScraper:recordLink(file, r)
     self.settings.book_links[file] = {
         source = r.source, id = r.id, isbn10 = r.isbn10, isbn13 = r.isbn13,
+        plugin_version = Version.VERSION,
         updated_at = os.date("%Y-%m-%d %H:%M:%S"),
     }
     self:saveSettings()
@@ -649,6 +714,8 @@ function MetadataScraper:showPreview(file, raw, query, r)
     info(_("Language"), r.language)
     info("ISBN-13", r.isbn13); info("ISBN-10", r.isbn10)
     info(_("Source"), (r.source_label or r.source) .. " · " .. tostring(r.score or 0) .. "%")
+    if r.also_sources and #r.also_sources > 0 then info(_("Also found on"), U.join(r.also_sources, ", ")) end
+    if r.match_reasons and #r.match_reasons > 0 then info(_("Match"), U.join(r.match_reasons, ", ")) end
     info(_("Cover"), r.cover_url and _("available") or _("not available"))
     table.insert(rows, {
         { text = _("Back"), callback = function() UIManager:close(dialog); self:searchOnline(file, raw, query) end },
@@ -695,10 +762,13 @@ function MetadataScraper:runBatch(files, count)
         for i = 1, count do
             local file = files[i]
             local raw, props = self:getRawProps(file)
+            local isbn10, isbn13 = U.extract_isbns(props.identifiers or raw.identifiers)
             local q = {
                 title = props.title or file:match("([^/]+)%.epub$") or "",
                 author = (props.authors or ""):gsub("\n", ", "),
+                isbn = isbn13 or isbn10,
                 language = props.language,
+                series = props.series,
             }
             local busy = InfoMessage:new{ text = string.format(_("Metadata %d/%d\n%s"), i, count, q.title) }
             UIManager:show(busy); UIManager:forceRePaint()
@@ -749,6 +819,7 @@ function MetadataScraper:addToMainMenu(menu_items)
             {
                 text = _("Provider accounts"),
                 sub_item_table = {
+                    { text = _("Test provider connections…"), callback = function() self:testProviders() end },
                     { text = _("Hardcover API token…"), callback = function() self:editHardcover() end },
                     { text = _("Amazon Creators API…"), callback = function() self:editAmazon() end },
                     { text_func = function() return _("Amazon marketplace") .. ": " .. self.settings.amazon_marketplace end, callback = function() self:showMarketplaceSelector() end },
@@ -788,13 +859,13 @@ function MetadataScraper:addToMainMenu(menu_items)
             {
                 text = _("About"),
                 callback = function()
-                    UIManager:show(InfoMessage:new{ text = _([[Metadata Scraper 0.1.1
+                    UIManager:show(InfoMessage:new{ text = string.format(_([[Metadata Scraper %s
 
 Target: KOReader 2026.07+
 
 Writes KOReader custom metadata and custom covers in sidecars. EPUB files are never modified.
 
-Hardcover and Amazon require API credentials. Amazon integration uses the supported Creators API, not HTML scraping.]]) })
+Hardcover and Amazon require API credentials. Amazon integration uses the supported Creators API, not HTML scraping.]]), Version.VERSION) })
                 end,
             },
         },
