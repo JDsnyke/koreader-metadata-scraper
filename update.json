@@ -5,6 +5,7 @@
     "_meta.lua",
     "main.lua",
     "update.json",
+    "lib/diagnostics.lua",
     "lib/http.lua",
     "lib/matcher.lua",
     "lib/updater.lua",
