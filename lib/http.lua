@@ -148,7 +148,6 @@ local function image_type_from_magic(prefix)
     end
     if prefix:sub(1, 8) == "\137PNG\r\n\26\n" then return "png" end
     if prefix:sub(1, 4) == "RIFF" and prefix:sub(9, 12) == "WEBP" then return "webp" end
-    if prefix:sub(1, 6) == "GIF87a" or prefix:sub(1, 6) == "GIF89a" then return "gif" end
     return nil
 end
 
@@ -169,7 +168,9 @@ function M.validate_image_file(filepath, headers)
     end
 
     local image_type = image_type_from_magic(read_prefix(filepath, 16))
-    if not image_type then return nil, "Downloaded cover has an unrecognized image signature" end
+    if not image_type then
+        return nil, "Downloaded cover is not a supported JPEG, PNG, or WebP image"
+    end
 
     return true, {
         size = size,
@@ -193,6 +194,10 @@ function M.download(url, filepath, headers, opts)
             sink = ltn12.sink.file(fh),
         }
         local code, resp_headers, err = perform(req, opts.block_timeout or 10, opts.total_timeout or 45)
+        -- ltn12 closes the file on a normal completed transfer, but a socket/error
+        -- path may exit before the sink receives its final nil chunk.
+        pcall(function() fh:close() end)
+
         if code and code >= 200 and code < 300 then
             return true, {
                 code = code,
