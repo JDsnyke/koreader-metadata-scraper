@@ -12,6 +12,22 @@ local function shallow_copy(t)
     return out
 end
 
+local function read_file(path)
+    local fh = io.open(path, "rb")
+    if not fh then return nil end
+    local data = fh:read("*all")
+    fh:close()
+    return data
+end
+
+local function write_file(path, data)
+    local fh = io.open(path, "wb")
+    if not fh then return nil end
+    local ok = fh:write(data)
+    fh:close()
+    return ok and true or nil
+end
+
 function M.write(file, original_props, result, fields, replace_existing)
     local existing_file = DocSettings:findCustomMetadataFile(file)
     local ds = existing_file and DocSettings.openSettingsFile(existing_file) or DocSettings.openSettingsFile()
@@ -54,13 +70,27 @@ end
 
 function M.write_cover(file, image_file)
     local existing = DocSettings:findCustomCoverFile(file)
-    if existing then os.remove(existing) end
-    local ok = DocSettings:flushCustomCover(file, image_file)
-    if ok then
-        UIManager:broadcastEvent(Event:new("InvalidateMetadataCache", file))
-        UIManager:broadcastEvent(Event:new("BookMetadataChanged"))
+    local backup
+
+    -- KOReader's flushCustomCover copies the new image but does not remove a cover
+    -- with a different extension. Preserve the old bytes before removing it so a
+    -- failed replacement never destroys a user's existing custom cover.
+    if existing then
+        backup = read_file(existing)
+        if backup == nil then return nil end
+        local removed = os.remove(existing)
+        if not removed then return nil end
     end
-    return ok
+
+    local ok = DocSettings:flushCustomCover(file, image_file)
+    if not ok then
+        if existing and backup then write_file(existing, backup) end
+        return nil
+    end
+
+    UIManager:broadcastEvent(Event:new("InvalidateMetadataCache", file))
+    UIManager:broadcastEvent(Event:new("BookMetadataChanged"))
+    return true
 end
 
 return M
