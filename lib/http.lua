@@ -3,6 +3,7 @@ local http = require("socket.http")
 local ltn12 = require("ltn12")
 local socket = require("socket")
 local socketutil = require("socketutil")
+local Diagnostics = require("lib/diagnostics")
 
 local M = {}
 
@@ -44,6 +45,10 @@ local function default_retries(method, opts)
     return 0
 end
 
+local function log_http(method, url, message)
+    Diagnostics.log("HTTP", tostring(method) .. " " .. Diagnostics.sanitize_url(url) .. " " .. tostring(message))
+end
+
 function M.is_transient_status(code)
     return TRANSIENT_STATUS[tonumber(code)] == true
 end
@@ -75,14 +80,18 @@ function M.request(method, url, headers, body, opts)
                 headers = resp_headers,
                 body = table.concat(sink),
             }
+            if code < 200 or code >= 400 then log_http(method, url, "-> HTTP " .. tostring(code)) end
             if attempt < retries and M.is_transient_status(code) then
+                log_http(method, url, "retrying transient HTTP " .. tostring(code) .. " (" .. tostring(attempt + 1) .. "/" .. tostring(retries) .. ")")
                 retry_delay(opts, attempt + 1)
             else
                 return res
             end
         else
             last_err = err
+            log_http(method, url, "network error: " .. tostring(err))
             if attempt < retries and opts.retry_network ~= false then
+                log_http(method, url, "retrying network failure (" .. tostring(attempt + 1) .. "/" .. tostring(retries) .. ")")
                 retry_delay(opts, attempt + 1)
             else
                 return nil, last_err
@@ -107,7 +116,10 @@ function M.json(method, url, headers, body_table, opts)
     if res.body and res.body ~= "" then
         local ok
         ok, decoded = pcall(JSON.decode, res.body)
-        if not ok then return nil, "Invalid JSON response (HTTP " .. tostring(res.code) .. ")" end
+        if not ok then
+            log_http(method, url, "invalid JSON response (HTTP " .. tostring(res.code) .. ")")
+            return nil, "Invalid JSON response (HTTP " .. tostring(res.code) .. ")"
+        end
     end
     res.json = decoded
     return res
@@ -191,8 +203,10 @@ function M.download(url, filepath, headers, opts)
 
         os.remove(filepath)
         last_err = err or ("HTTP " .. tostring(code))
+        log_http("GET", url, code and ("download -> HTTP " .. tostring(code)) or ("download network error: " .. tostring(err)))
         local can_retry = attempt < retries and (not code or M.is_transient_status(code))
         if can_retry then
+            log_http("GET", url, "retrying download (" .. tostring(attempt + 1) .. "/" .. tostring(retries) .. ")")
             retry_delay(opts, attempt + 1)
         else
             return nil, last_err
