@@ -36,6 +36,26 @@ check("central version and user agent", function()
     eq(Version.user_agent(), "KOReader-Metadata-Scraper/0.1.3")
 end)
 
+check("runtime files do not carry stale release versions", function()
+    local paths = {
+        "_meta.lua",
+        "main.lua",
+        "lib/updater.lua",
+        "providers/amazon.lua",
+        "providers/googlebooks.lua",
+        "providers/hardcover.lua",
+        "providers/openlibrary.lua",
+    }
+    for _, path in ipairs(paths) do
+        local data = read_file(path)
+        truthy(not data:find("KOReader%-Metadata%-Scraper/0%.1%.1"), path .. " has stale 0.1.1 user agent")
+        truthy(not data:find("KOReader%-Metadata%-Scraper/0%.1%.2"), path .. " has stale 0.1.2 user agent")
+        truthy(not data:find("Metadata Scraper 0%.1%.1"), path .. " has stale 0.1.1 display version")
+        truthy(not data:find("Metadata Scraper 0%.1%.2"), path .. " has stale 0.1.2 display version")
+    end
+    truthy(read_file("update.json"):find('"version": "0.1.3"', 1, true), "manifest version is not 0.1.3")
+end)
+
 check("ISBN extraction from EPUB-style identifiers", function()
     local U = require("lib/util")
     local isbn10, isbn13 = U.extract_isbns("urn:isbn:978-0-14-032872-1; ISBN 0-14-032872-6")
@@ -183,6 +203,37 @@ check("Amazon refreshes a cached token once after HTTP 401", function()
     eq(err, nil)
     eq(token_calls, 2)
     eq(search_calls, 3)
+end)
+
+check("Google Books honors 429 Retry-After and cools down", function()
+    package.loaded["providers/googlebooks"] = nil
+    local calls = 0
+    package.loaded["lib/http"] = {
+        json = function(method, url, headers)
+            calls = calls + 1
+            eq(headers["User-Agent"], "KOReader-Metadata-Scraper/0.1.3")
+            return {
+                code = 429,
+                headers = { ["Retry-After"] = "120" },
+                json = {
+                    error = {
+                        message = "Quota exceeded",
+                        errors = { { reason = "rateLimitExceeded" } },
+                    },
+                },
+            }
+        end,
+    }
+    local Google = require("providers/googlebooks")
+    local settings = { google_api_key = "key" }
+    local list, err = Google.search({ title = "test" }, settings)
+    eq(#list, 0)
+    truthy(err:find("cooldown 120s", 1, true))
+    eq(calls, 1)
+    list, err = Google.search({ title = "test" }, settings)
+    eq(#list, 0)
+    truthy(err:find("retry in about", 1, true))
+    eq(calls, 1, "cooldown should prevent a second HTTP request")
 end)
 
 check("cover replacement restores old cover on write failure", function()
