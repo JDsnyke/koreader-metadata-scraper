@@ -11,6 +11,10 @@ A Kindle-friendly KOReader plugin for fetching EPUB metadata and covers from:
 
 KOReader **2026.07 (Sailing Walrus)** and newer. The plugin uses KOReader's native custom metadata and custom cover sidecars; it does **not** rewrite EPUB files.
 
+### Modern Kindle / Coloursoft
+
+On modern Kindles running firmware **5.16.3+** (including a Coloursoft on 5.19.5 with a compatible jailbreak such as Vera), use KOReader's **`kindlehf`** build. The plugin updater derives the plugin directory from the running plugin itself, so it does not depend on a hard-coded `/mnt/us` vs `/mnt/base-us` install path.
+
 ## Installation on Kindle
 
 1. Unzip `metadata_scraper.koplugin`.
@@ -31,7 +35,7 @@ Google Books now requires a project API key in this plugin. This avoids relying 
 
 ### Hardcover
 
-Open **Metadata Scraper → Provider accounts → Hardcover API token…** and enter the token from your Hardcover account settings. The token is stored locally in KOReader's settings file.
+Open **Metadata Scraper → Provider accounts → Hardcover API token…** and enter the token from your Hardcover account settings. The plugin sends Hardcover's required `Authorization: Bearer <token>` header. You can paste either the raw token or a value that already begins with `Bearer `; it will not double-prefix it. The token is stored locally in KOReader's settings file.
 
 ### Amazon
 
