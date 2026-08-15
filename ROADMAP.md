@@ -41,8 +41,8 @@ A higher score means “more valuable to prioritize,” not “must be implement
 | 5 | #6 | Exact-edition awareness | **94** | 5 | 5 | 5 | 5 | 2 | v0.2.0 |
 | 6 | #51 | Safe file renaming and library organization | **94** | 5 | 5 | 5 | 5 | 2 | v0.2.2 |
 | 7 | #47 | Copy/save diagnostics/support bundle | **93** | 5 | 4 | 5 | 5 | 4 | **v0.1.3 save-to-file core**; richer export/copy v0.1.4 |
-| 8 | #12 | Undo last metadata change | **92** | 5 | 5 | 4 | 5 | 3 | v0.2.0 |
-| 9 | #1 | Refresh previously matched metadata | **91** | 5 | 4 | 5 | 5 | 3 | v0.2.0 |
+| 8 | #12 | Undo last metadata change | **92** | 5 | 5 | 4 | 5 | 3 | **v0.1.3 one-step undo expedited**; multi-revision history v0.2.0 |
+| 9 | #1 | Refresh previously matched metadata | **91** | 5 | 4 | 5 | 5 | 3 | **v0.1.3 provenance groundwork**; direct refresh v0.2.0 |
 | 10 | #14 | Batch preview before writing | **90** | 5 | 5 | 4 | 5 | 2 | v0.2.0 |
 | 11 | #24 | Better HTTP resilience | **90** | 4 | 5 | 5 | 5 | 3 | **v0.1.3 cautious GET/download core**; provider pacing follow-up |
 | 12 | #27 | Updater deletion/migration support | **90** | 4 | 5 | 5 | 5 | 3 | v0.1.4 |
@@ -50,7 +50,7 @@ A higher score means “more valuable to prioritize,” not “must be implement
 | 14 | #22 | Per-provider rate controls | **86** | 4 | 5 | 4 | 5 | 3 | v0.1.4 |
 | 15 | #2 | Metadata source merging | **84** | 5 | 3 | 5 | 5 | 2 | v0.2.1 |
 | 16 | #30 | Credential masking and validation | **84** | 4 | 5 | 3 | 5 | 4 | v0.1.4; diagnostics redaction core already in v0.1.3 |
-| 17 | #10 | Current vs proposed result details | **83** | 5 | 4 | 3 | 5 | 3 | v0.2.0 |
+| 17 | #10 | Current vs proposed result details | **83** | 5 | 4 | 3 | 5 | 3 | **v0.1.3 core expedited**; richer field/source comparison v0.2.0 |
 | 18 | #40 | Better author normalization | **83** | 4 | 4 | 4 | 5 | 4 | v0.2.1 |
 | 19 | #44 | Explain-score details | **83** | 4 | 4 | 4 | 5 | 4 | v0.2.0; match reasons already started in v0.1.3 |
 | 20 | #52 | Audiobook metadata support | **82** | 5 | 3 | 5 | 5 | 1 | v0.3.0 |
@@ -62,7 +62,7 @@ A higher score means “more valuable to prioritize,” not “must be implement
 | 26 | #50 | Use filename as search / filename parser | **78** | 4 | 3 | 4 | 5 | 4 | v0.2.2 |
 | 27 | #5 | Cover quality detection | **76** | 4 | 4 | 3 | 4 | 4 | v0.2.1 |
 | 28 | #11 | Select fields at apply time | **76** | 4 | 4 | 3 | 4 | 4 | v0.2.0 |
-| 29 | #13 | Metadata history | **76** | 4 | 4 | 4 | 4 | 2 | v0.2.0 |
+| 29 | #13 | Metadata history | **76** | 4 | 4 | 4 | 4 | 2 | v0.2.0; v0.1.3 stores one prior state only |
 | 30 | #29 | Backup/restore/reset settings | **76** | 4 | 4 | 3 | 4 | 4 | v0.1.4 |
 | 31 | #33 | Calibre compatibility awareness | **76** | 4 | 4 | 4 | 4 | 2 | v0.2.2 |
 | 32 | #37 | Description cleanup | **76** | 4 | 3 | 3 | 5 | 5 | v0.2.1 |
@@ -99,12 +99,16 @@ The following roadmap work was deliberately pulled forward because it is bounded
 - **#24 HTTP resilience (core):** GET/HEAD requests and downloads receive one cautious retry for network failures and HTTP 502/503/504; 429/auth failures and ordinary POST requests are not blindly retried.
 - **#25 Cover validation (core):** downloaded covers are checked for minimum plausible size and recognized image signatures before existing custom covers are touched.
 - **#30 Credential safety (partial):** diagnostics have explicit and pattern-based redaction for configured tokens/keys/Amazon secrets and authorization/query-secret patterns.
+- **#10 Current vs proposed comparison (core):** the match preview now shows only the selected text fields that would actually change under the active write mode, with existing and proposed values where practical.
+- **#12 Undo (one-step core):** exact custom-metadata/custom-cover bytes are snapshotted before apply and can be restored for the current/context-selected book, including after a KOReader restart.
+- **#1 Refresh/provenance prerequisite:** the saved match record now contains provider ID, canonical identifiers, score/reasons, query, written fields, cover outcome, plugin version, and timestamp so later exact-record refresh has a stable base.
+- **#13 History prerequisite:** v0.1.3 retains a single prior state per book and bounds the overall undo set to 20 books; true multi-revision history remains deferred.
 
 These are still **unreleased branch changes** and require the v0.1.3 real-device release gate.
 
 ## Release themes
 
-### v0.1.3 — Reliability, Matching & Hardening
+### v0.1.3 — Reliability, Matching, Hardening & Lifecycle Safety
 
 Current development branch. The goal is to establish a safe, diagnosable baseline before broadening the feature surface.
 
@@ -115,6 +119,9 @@ Primary themes:
 - ISBN-10/ISBN-13 canonical matching;
 - cross-provider result deduplication;
 - match reasons and conflict-aware confidence safeguards;
+- Current → Proposed change preview;
+- richer per-book provenance and Last match details;
+- persistent one-step undo of KOReader custom metadata/custom cover changes;
 - safer cover replacement and payload validation;
 - Amazon token-cache/authentication hardening;
 - cautious transient GET/download retries;
@@ -143,22 +150,21 @@ Primary follow-up items:
 - #25 optional image-dimension/placeholder quality checks;
 - #48 additional shared operation wrappers where real-device testing shows value.
 
-### v0.2.0 — Metadata lifecycle, review & undo
+### v0.2.0 — Full metadata lifecycle, review & refresh
 
-Move from “search and apply” to a safer metadata lifecycle.
+Build on the one-step lifecycle safety already expedited into v0.1.3.
 
-Key ranked items:
+Key remaining items:
 - #6 exact-edition awareness;
-- #12 undo last metadata change;
-- #1 refresh previously matched metadata;
+- #1 direct refresh of a previously matched provider record using saved provenance;
 - #14 batch preview before writing;
 - #42 expand confidence safeguards to explicit edition/format evidence;
-- #10 current-vs-proposed comparison;
+- #10 richer field/source comparison beyond the v0.1.3 core preview;
 - #44 explain-score details;
 - #23 resumable batch operations;
 - #15 borderline-match review;
-- #13 metadata history;
-- #11 apply selected fields;
+- #13 bounded multi-revision metadata history beyond one-step undo;
+- #11 apply selected fields per book;
 - #18 skip already matched books;
 - #16 batch summary/export;
 - #45 batch threshold presets;
