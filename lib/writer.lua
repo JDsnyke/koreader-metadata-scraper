@@ -30,6 +30,14 @@ local function write_file(path, data)
     return ok and true or nil
 end
 
+local function file_exists(path)
+    if not path then return false end
+    local fh = io.open(path, "rb")
+    if not fh then return false end
+    fh:close()
+    return true
+end
+
 local function incoming_values(result)
     result = type(result) == "table" and result or {}
     return {
@@ -187,14 +195,25 @@ local function snapshot_file(path, backup_path)
     return true
 end
 
+local function next_snapshot_id(file, backup_root)
+    local base = U.safe_filename(file:match("([^/]+)$") or "book")
+    local stamp = tostring(os.time())
+    while true do
+        snapshot_seq = snapshot_seq + 1
+        local id = stamp .. "_" .. tostring(snapshot_seq) .. "_" .. base
+        if not file_exists(backup_root .. "/" .. id .. ".metadata")
+            and not file_exists(backup_root .. "/" .. id .. ".cover") then
+            return id
+        end
+    end
+end
+
 local function create_snapshot(file, backup_root)
     if type(backup_root) ~= "string" or backup_root == "" then
         return nil, "Undo backup directory is unavailable"
     end
 
-    snapshot_seq = snapshot_seq + 1
-    local base = U.safe_filename(file:match("([^/]+)$") or "book")
-    local id = tostring(os.time()) .. "_" .. tostring(snapshot_seq) .. "_" .. base
+    local id = next_snapshot_id(file, backup_root)
     local metadata_path = DocSettings:findCustomMetadataFile(file)
     local cover_path = DocSettings:findCustomCoverFile(file)
     local snapshot = {
@@ -233,7 +252,10 @@ local function restore_one(current_path, original_path, backup_path)
         if not backup_path then return nil, "Undo backup is missing" end
         local data = read_file(backup_path)
         if data == nil then return nil, "Undo backup cannot be read" end
-        if current_path and current_path ~= original_path then os.remove(current_path) end
+        if current_path and current_path ~= original_path then
+            local removed = os.remove(current_path)
+            if not removed then return nil, "Could not remove current override " .. tostring(current_path) end
+        end
         if not write_file(original_path, data) then return nil, "Could not restore " .. tostring(original_path) end
     elseif current_path then
         local removed = os.remove(current_path)
