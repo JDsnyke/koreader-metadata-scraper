@@ -1,0 +1,27 @@
+name: Lua checks
+
+on:
+  push:
+    branches:
+      - main
+      - "agent/**"
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+
+      - name: Syntax check Lua files
+        run: |
+          find . -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+
+      - name: Run regression tests
+        run: lua5.1 tests/run.lua
