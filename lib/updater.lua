@@ -2,16 +2,17 @@ local DataStorage = require("datastorage")
 local util = require("util")
 
 local HTTP = require("lib/http")
+local Version = require("lib/version")
 
 local M = {
-    CURRENT_VERSION = "0.1.2",
+    CURRENT_VERSION = Version.VERSION,
     release_api = "https://api.github.com/repos/JDsnyke/koreader-metadata-scraper/releases/latest",
     raw_base = "https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/",
 }
 
 local HEADERS = {
     ["Accept"] = "application/vnd.github+json",
-    ["User-Agent"] = "KOReader-Metadata-Scraper/0.1.2",
+    ["User-Agent"] = Version.user_agent(),
 }
 
 local function version_parts(v)
