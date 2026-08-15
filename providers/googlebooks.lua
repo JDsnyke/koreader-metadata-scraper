@@ -2,6 +2,8 @@ local HTTP = require("lib/http")
 local U = require("lib/util")
 
 local P = { id = "google", label = "Google Books" }
+local cooldown_until = 0
+local backoff_step = 0
 
 local function qpart(query)
     local isbn = U.clean_isbn(query.isbn)
@@ -12,15 +14,64 @@ local function qpart(query)
     return table.concat(parts, " ")
 end
 
+local function error_details(res)
+    local e = res and res.json and res.json.error
+    local message = e and e.message or ("HTTP " .. tostring(res and res.code or "?"))
+    local reason
+    if e and type(e.errors) == "table" and e.errors[1] then reason = e.errors[1].reason end
+    if reason and reason ~= "" then return reason .. ": " .. message, reason end
+    return message, reason
+end
+
+local function retry_after_seconds(res, reason)
+    local headers = (res and res.headers) or {}
+    local header = headers["retry-after"] or headers["Retry-After"]
+    local seconds = tonumber(header)
+    if seconds and seconds > 0 then return math.min(seconds, 3600) end
+    if reason == "dailyLimitExceeded" or reason == "quotaExceeded" then return 3600 end
+    backoff_step = math.min(backoff_step + 1, 6)
+    return math.min(30 * (2 ^ (backoff_step - 1)), 900)
+end
+
 function P.search(query, settings)
+    local now = os.time()
+    if now < cooldown_until then
+        local remaining = math.max(1, cooldown_until - now)
+        return {}, "Rate limited by Google Books; retry in about " .. tostring(remaining) .. " seconds"
+    end
+
+    if not U.nonempty(settings.google_api_key) then
+        return {}, "Google Books API key required. Add one under Provider accounts."
+    end
+
     local q = qpart(query)
     if q == "" then return {}, "Title, author or ISBN required" end
     local url = "https://www.googleapis.com/books/v1/volumes?q=" .. U.urlencode(q)
-        .. "&printType=books&maxResults=8"
-    if U.nonempty(settings.google_api_key) then url = url .. "&key=" .. U.urlencode(settings.google_api_key) end
-    local res, err = HTTP.json("GET", url)
+        .. "&printType=books&maxResults=8&key=" .. U.urlencode(settings.google_api_key)
+    local res, err = HTTP.json("GET", url, {
+        ["User-Agent"] = "KOReader-Metadata-Scraper/0.1.1",
+    })
     if not res then return {}, err end
-    if res.code ~= 200 then return {}, "HTTP " .. tostring(res.code) end
+
+    if res.code == 429 or res.code == 403 then
+        local detail, reason = error_details(res)
+        local quota_error = res.code == 429 or reason == "rateLimitExceeded"
+            or reason == "userRateLimitExceeded" or reason == "quotaExceeded"
+            or reason == "dailyLimitExceeded"
+        if quota_error then
+            local wait = retry_after_seconds(res, reason)
+            cooldown_until = os.time() + wait
+            return {}, detail .. " (cooldown " .. tostring(wait) .. "s)"
+        end
+    end
+
+    if res.code ~= 200 then
+        local detail = error_details(res)
+        return {}, detail
+    end
+    backoff_step = 0
+    cooldown_until = 0
+
     local out = {}
     for _, item in ipairs((res.json and res.json.items) or {}) do
         local v = item.volumeInfo or {}

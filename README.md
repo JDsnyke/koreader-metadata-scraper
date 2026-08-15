@@ -23,7 +23,11 @@ With current Zen UI installed, long-press an EPUB and choose **Fetch metadata**.
 
 ## Provider setup
 
-Google Books and Open Library are enabled by default.
+Open Library is enabled by default. Google Books is enabled automatically when you save an API key.
+
+### Google Books
+
+Google Books now requires a project API key in this plugin. This avoids relying on anonymous/shared quota, which can surface as HTTP 429. When Google returns a quota/rate-limit response, the plugin respects `Retry-After` when present and applies a bounded exponential cooldown instead of repeatedly hammering the API. Other enabled providers continue to work.
 
 ### Hardcover
 
@@ -78,3 +82,15 @@ These defaults reduce accidental edition mismatches and excessive API traffic.
 - Hardcover's API is beta and may change.
 - Amazon Creators API access depends on your Amazon Associates/Creators API eligibility.
 - Covers are downloaded to a temporary cache file and then copied using KOReader's native custom-cover mechanism.
+
+
+## Plugin updates
+
+Metadata Scraper can update itself from this repository's **latest GitHub release**.
+
+- **Metadata Scraper → Check for updates…** performs a manual check.
+- **Automatic update checks** are enabled by default, at most once every 24 hours, and never turn Wi-Fi on by themselves.
+- Updates are staged completely before installation. The updater reads `update.json` from the release tag, downloads every listed file over HTTPS, backs up the installed files, and rolls back if replacement fails.
+- Restart KOReader after an update so the new Lua modules are loaded.
+
+Release maintainers must include an `update.json` manifest whose `version` matches the release tag.

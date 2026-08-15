@@ -1,0 +1,18 @@
+{
+  "version": "0.1.1",
+  "files": [
+    "README.md",
+    "_meta.lua",
+    "main.lua",
+    "update.json",
+    "lib/http.lua",
+    "lib/matcher.lua",
+    "lib/updater.lua",
+    "lib/util.lua",
+    "lib/writer.lua",
+    "providers/amazon.lua",
+    "providers/googlebooks.lua",
+    "providers/hardcover.lua",
+    "providers/openlibrary.lua"
+  ]
+}
