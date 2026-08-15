@@ -4,11 +4,21 @@ local U = require("lib/util")
 local P = { id = "hardcover", label = "Hardcover" }
 local ENDPOINT = "https://api.hardcover.app/v1/graphql"
 
+local function authorization_header(token)
+    token = U.trim(tostring(token or ""))
+    if token == "" then return nil end
+    -- Hardcover's current GraphQL Explorer normalizes pasted credentials this way:
+    -- accept either a raw API token or an already-prefixed Bearer value.
+    if token:lower():match("^bearer%s+") then return token end
+    return "Bearer " .. token
+end
+
 local function graphql(token, query, variables)
-    if not U.nonempty(token) then return nil, "Hardcover API token is not configured" end
+    local authorization = authorization_header(token)
+    if not authorization then return nil, "Hardcover API token is not configured" end
     local res, err = HTTP.json("POST", ENDPOINT, {
-        ["authorization"] = token,
-        ["User-Agent"] = "KOReader-Metadata-Scraper/0.1.0",
+        ["Authorization"] = authorization,
+        ["User-Agent"] = "KOReader-Metadata-Scraper/0.1.1",
     }, { query = query, variables = variables or {} })
     if not res then return nil, err end
     if res.code ~= 200 then return nil, "HTTP " .. tostring(res.code) end
@@ -66,6 +76,8 @@ query MetadataScraperSearch($q: String!) {
         })
     end
 
+    -- The search endpoint is intentionally enough to work on its own. Enrich covers
+    -- with a shallow, documented Books query when IDs are available. Failure here is non-fatal.
     local numeric_ids = {}
     for _, r in ipairs(out) do
         local n = tonumber(r.id)
