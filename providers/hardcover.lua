@@ -1,6 +1,7 @@
 local JSON = require("json")
 local HTTP = require("lib/http")
 local U = require("lib/util")
+local Version = require("lib/version")
 
 local P = { id = "hardcover", label = "Hardcover" }
 local ENDPOINT = "https://api.hardcover.app/v1/graphql"
@@ -8,8 +9,6 @@ local ENDPOINT = "https://api.hardcover.app/v1/graphql"
 local function authorization_header(token)
     token = U.trim(tostring(token or ""))
     if token == "" then return nil end
-    -- Hardcover's current GraphQL Explorer normalizes pasted credentials this way:
-    -- accept either a raw API token or an already-prefixed Bearer value.
     if token:lower():match("^bearer%s+") then return token end
     return "Bearer " .. token
 end
@@ -19,7 +18,7 @@ local function graphql(token, query, variables)
     if not authorization then return nil, "Hardcover API token is not configured" end
     local res, err = HTTP.json("POST", ENDPOINT, {
         ["Authorization"] = authorization,
-        ["User-Agent"] = "KOReader-Metadata-Scraper/0.1.2",
+        ["User-Agent"] = Version.user_agent(),
     }, { query = query, variables = variables or {} })
     if not res then return nil, err end
     if res.code ~= 200 then return nil, "HTTP " .. tostring(res.code) end
@@ -28,6 +27,29 @@ local function graphql(token, query, variables)
         return nil, (type(e) == "table" and e.message) or "GraphQL error"
     end
     return res.json and res.json.data
+end
+
+local function normalize_results(value)
+    if type(value) == "string" then
+        local ok, decoded = pcall(JSON.decode, value)
+        if not ok then return nil, "Hardcover returned invalid JSON in search.results" end
+        value = decoded
+    end
+    if type(value) ~= "table" then
+        return nil, "Hardcover returned an unsupported search.results type: " .. type(value)
+    end
+
+    local source = value
+    if type(value.hits) == "table" then source = value.hits end
+
+    local docs = {}
+    for _, item in ipairs(source) do
+        if type(item) == "table" then
+            local doc = type(item.document) == "table" and item.document or item
+            if type(doc) == "table" then table.insert(docs, doc) end
+        end
+    end
+    return docs
 end
 
 function P.search(query, settings)
@@ -47,33 +69,6 @@ query MetadataScraperSearch($q: String!) {
     if not data then return {}, err end
     local search = data.search or {}
     local ids = search.ids or {}
-
-    -- Hardcover search is backed by Typesense. Depending on the API version,
-    -- `results` may be a flat array of documents, a Typesense response object
-    -- with `hits[].document`, an array of hit objects, or a JSON-encoded version
-    -- of either. Normalize all of those into a simple document array.
-    local function normalize_results(value)
-        if type(value) == "string" then
-            local ok, decoded = pcall(JSON.decode, value)
-            if not ok then return nil, "Hardcover returned invalid JSON in search.results" end
-            value = decoded
-        end
-        if type(value) ~= "table" then
-            return nil, "Hardcover returned an unsupported search.results type: " .. type(value)
-        end
-
-        local source = value
-        if type(value.hits) == "table" then source = value.hits end
-
-        local docs = {}
-        for _, item in ipairs(source) do
-            if type(item) == "table" then
-                local doc = type(item.document) == "table" and item.document or item
-                if type(doc) == "table" then table.insert(docs, doc) end
-            end
-        end
-        return docs
-    end
 
     local results, results_err = normalize_results(search.results or {})
     if not results then return {}, results_err end
@@ -110,8 +105,6 @@ query MetadataScraperSearch($q: String!) {
         return {}, "Hardcover returned search IDs but no readable result documents"
     end
 
-    -- The search endpoint is intentionally enough to work on its own. Enrich covers
-    -- with a shallow, documented Books query when IDs are available. Failure here is non-fatal.
     local numeric_ids = {}
     for _, r in ipairs(out) do
         local n = tonumber(r.id)
@@ -137,5 +130,20 @@ query MetadataScraperSearch($q: String!) {
     end
     return out
 end
+
+function P.test(settings)
+    local data, err = graphql(settings.hardcover_token, [[
+query MetadataScraperAccountTest {
+  me { id username }
+}]], {})
+    if not data then return false, err end
+    local me = type(data.me) == "table" and data.me[1] or nil
+    if not me then return false, "Authenticated request returned no account" end
+    if U.nonempty(me.username) then return true, "Authenticated as " .. me.username end
+    return true, "Authentication OK"
+end
+
+P._authorization_header = authorization_header
+P._normalize_results = normalize_results
 
 return P
