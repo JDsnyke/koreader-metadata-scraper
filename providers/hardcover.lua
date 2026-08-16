@@ -52,6 +52,13 @@ local function normalize_results(value)
     return docs
 end
 
+function P.status(settings)
+    if not U.nonempty(settings and settings.hardcover_token) then
+        return "token missing", "missing"
+    end
+    return "configured · not tested", "configured"
+end
+
 function P.search(query, settings)
     local term = U.clean_isbn(query.isbn)
     if not term then
