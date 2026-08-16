@@ -193,13 +193,19 @@ local function is_empty_array(v)
     return type(v) ~= "table" or #v == 0
 end
 
+local function mergeable_scalar(value)
+    local kind = type(value)
+    return (kind == "string" and value ~= "") or kind == "number"
+end
+
 local function merge_missing(primary, extra)
     local scalar_fields = {
         "subtitle", "series", "series_index", "description", "published_date", "language",
         "isbn10", "isbn13", "cover_url", "publisher", "pages",
+        "format", "binding", "edition", "media_kind",
     }
     for _, key in ipairs(scalar_fields) do
-        if (primary[key] == nil or primary[key] == "") and extra[key] ~= nil and extra[key] ~= "" then
+        if (primary[key] == nil or primary[key] == "") and mergeable_scalar(extra[key]) then
             primary[key] = extra[key]
         end
     end
@@ -223,6 +229,26 @@ local function merge_missing(primary, extra)
     end
 end
 
+local function rank_sorter(source_priority)
+    return function(a, b)
+        if a.score ~= b.score then return a.score > b.score end
+        local pa = source_priority[a.source] or 99
+        local pb = source_priority[b.source] or 99
+        if pa ~= pb then return pa < pb end
+        return tostring(a.title or "") < tostring(b.title or "")
+    end
+end
+
+local function rescore(query, r)
+    local ok, score, reasons = pcall(M.score, query, r)
+    if not ok or type(score) ~= "number" then return false end
+    r.score = score
+    r.match_reasons = type(reasons) == "table" and reasons or {}
+    r.confidence = M.confidence(score, r.match_reasons)
+    r.media_kind = r.media_kind or result_media_kind(r)
+    return true
+end
+
 function M.rank(query, results, source_priority)
     source_priority = source_priority or {}
     if type(results) ~= "table" then return {} end
@@ -231,25 +257,12 @@ function M.rank(query, results, source_priority)
     -- discarded rather than preventing healthy provider results from being shown.
     local valid = {}
     for _, r in ipairs(results) do
-        if type(r) == "table" then
-            local ok, score, reasons = pcall(M.score, query, r)
-            if ok and type(score) == "number" then
-                r.score = score
-                r.match_reasons = type(reasons) == "table" and reasons or {}
-                r.confidence = M.confidence(score, r.match_reasons)
-                r.media_kind = r.media_kind or result_media_kind(r)
-                table.insert(valid, r)
-            end
+        if type(r) == "table" and rescore(query, r) then
+            table.insert(valid, r)
         end
     end
 
-    table.sort(valid, function(a, b)
-        if a.score ~= b.score then return a.score > b.score end
-        local pa = source_priority[a.source] or 99
-        local pb = source_priority[b.source] or 99
-        if pa ~= pb then return pa < pb end
-        return tostring(a.title or "") < tostring(b.title or "")
-    end)
+    table.sort(valid, rank_sorter(source_priority))
 
     local deduped, by_key = {}, {}
     for _, r in ipairs(valid) do
@@ -268,8 +281,17 @@ function M.rank(query, results, source_priority)
         end
     end
 
+    -- Deduplication can add previously missing edition/format/language/series
+    -- evidence from another provider. Re-score after the merge so display and
+    -- automatic batch eligibility always reflect the final merged candidate.
+    local rescored = {}
+    for _, r in ipairs(deduped) do
+        if rescore(query, r) then table.insert(rescored, r) end
+    end
+    table.sort(rescored, rank_sorter(source_priority))
+
     for i = #results, 1, -1 do results[i] = nil end
-    for _, r in ipairs(deduped) do table.insert(results, r) end
+    for _, r in ipairs(rescored) do table.insert(results, r) end
     return results
 end
 
