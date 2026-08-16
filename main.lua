@@ -45,6 +45,7 @@ local DEFAULTS = {
     download_cover = true,
     batch_threshold = 90,
     batch_limit = 20,
+    batch_skip_matched = true,
     auto_update_check = true,
     last_update_check = 0,
     fields = {
@@ -74,6 +75,12 @@ local PREVIEW_LABELS = {
     description = "Description",
 }
 
+local FIELD_DEFS = {
+    { "title", "Title" }, { "authors", "Authors" }, { "series", "Series" },
+    { "series_index", "Series index" }, { "language", "Language" },
+    { "keywords", "Keywords / genres" }, { "description", "Description" },
+}
+
 local source = debug.getinfo(1, "S").source or ""
 if source:sub(1, 1) == "@" then source = source:sub(2) end
 local PLUGIN_ROOT = source:match("^(.*)/main%.lua$") or "."
@@ -99,6 +106,19 @@ local function display_value(value, limit)
     limit = limit or 62
     if #text > limit then text = text:sub(1, limit - 1) .. "…" end
     return text
+end
+
+local function confidence_label(value)
+    local labels = {
+        Exact = _("Exact"), Strong = _("Strong"), Possible = _("Possible"), Weak = _("Weak"),
+    }
+    return labels[value] or tostring(value or _("Unknown"))
+end
+
+local function provider_status_text(provider, settings)
+    if not provider or type(provider.status) ~= "function" then return nil end
+    local ok, text = pcall(provider.status, settings)
+    if ok and text and tostring(text) ~= "" then return tostring(text) end
 end
 
 function MetadataScraper:init()
@@ -359,8 +379,12 @@ function MetadataScraper:showProviderDialog()
     local rows = {}
     for _, id in ipairs(DEFAULT_ORDER) do
         local provider = PROVIDERS[id]
+        local status = provider_status_text(provider, self.settings)
+        local text = provider.label
+        if status then text = text .. " · " .. status end
+        if self.settings.enabled[id] then text = text .. "  ✓" end
         table.insert(rows, {{
-            text = provider.label .. (self.settings.enabled[id] and "  ✓" or ""), align = "left",
+            text = text, align = "left",
             callback = function()
                 self.settings.enabled[id] = not self.settings.enabled[id]
                 self:saveSettings()
@@ -374,15 +398,10 @@ function MetadataScraper:showProviderDialog()
 end
 
 function MetadataScraper:showFieldDialog()
-    local defs = {
-        { "title", _("Title") }, { "authors", _("Authors") }, { "series", _("Series") },
-        { "series_index", _("Series index") }, { "language", _("Language") },
-        { "keywords", _("Keywords / genres") }, { "description", _("Description") },
-    }
     local dialog
     local rows = {}
-    for _, def in ipairs(defs) do
-        local key, label = def[1], def[2]
+    for _, def in ipairs(FIELD_DEFS) do
+        local key, label = def[1], _(def[2])
         table.insert(rows, {{
             text = label .. (self.settings.fields[key] and "  ✓" or ""), align = "left",
             callback = function()
@@ -405,9 +424,21 @@ function MetadataScraper:showFieldDialog()
     UIManager:show(dialog)
 end
 
+function MetadataScraper:showBatchThresholdSelector()
+    self:showSelectDialog(_("Batch confidence threshold"), {
+        { _("Strict (95%)"), 95 },
+        { _("Recommended (90%)"), 90 },
+        { _("Permissive (80%)"), 80 },
+    }, tonumber(self.settings.batch_threshold) or 90, function(value)
+        self.settings.batch_threshold = value
+        self:saveSettings()
+    end)
+end
+
 function MetadataScraper:showQuickSettings()
     local dialog
     local replace = self.settings.replace_existing and _("Replace existing") or _("Fill missing only")
+    local threshold = tonumber(self.settings.batch_threshold) or 90
     dialog = ButtonDialog:new{
         title = _("Metadata Scraper"), title_align = "center",
         buttons = {
@@ -418,6 +449,11 @@ function MetadataScraper:showQuickSettings()
             {{ text = _("Metadata fields"), align = "left", callback = function() UIManager:close(dialog); self:showFieldDialog() end }},
             {{ text = _("Write mode") .. ": " .. replace, align = "left", callback = function()
                 self.settings.replace_existing = not self.settings.replace_existing; self:saveSettings()
+                UIManager:close(dialog); UIManager:nextTick(function() self:showQuickSettings() end)
+            end }},
+            {{ text = _("Batch threshold") .. ": " .. tostring(threshold) .. "%", align = "left", callback = function() UIManager:close(dialog); self:showBatchThresholdSelector() end }},
+            {{ text = _("Skip already matched in batch") .. (self.settings.batch_skip_matched and "  ✓" or ""), align = "left", callback = function()
+                self.settings.batch_skip_matched = not self.settings.batch_skip_matched; self:saveSettings()
                 UIManager:close(dialog); UIManager:nextTick(function() self:showQuickSettings() end)
             end }},
             {{ text = _("Hardcover account…"), align = "left", callback = function() UIManager:close(dialog); self:editHardcover() end }},
@@ -703,7 +739,7 @@ function MetadataScraper:showResults(file, raw, query, results)
         if r.published_date then secondary = secondary .. " · " .. tostring(r.published_date) end
         local text = tostring(r.title or _("Untitled"))
         if author ~= "" then text = text .. "\n" .. author end
-        text = text .. "\n" .. tostring(r.score or 0) .. "% · " .. secondary
+        text = text .. "\n" .. tostring(r.score or 0) .. "% " .. confidence_label(r.confidence) .. " · " .. secondary
         table.insert(rows, {{
             text = text, align = "left",
             callback = function() UIManager:close(dialog); self:showPreview(file, raw, query, r) end,
@@ -769,6 +805,7 @@ function MetadataScraper:recordLink(file, r, query, changes, cover_ok)
         published_date = r.published_date,
         publisher = r.publisher,
         score = r.score,
+        confidence = r.confidence,
         match_reasons = U.copy(r.match_reasons),
         also_sources = U.copy(r.also_sources),
         query = {
@@ -798,7 +835,11 @@ function MetadataScraper:showLastMatchDetails(file)
         _("Source") .. ": " .. tostring(link.source_label or link.source or _("unknown")),
     }
     if link.id then table.insert(lines, _("Provider ID") .. ": " .. tostring(link.id)) end
-    if link.score then table.insert(lines, _("Match score") .. ": " .. tostring(link.score) .. "%") end
+    if link.score then
+        local score_text = tostring(link.score) .. "%"
+        if link.confidence then score_text = score_text .. " · " .. confidence_label(link.confidence) end
+        table.insert(lines, _("Match score") .. ": " .. score_text)
+    end
     if link.canonical_isbn then table.insert(lines, "ISBN: " .. tostring(link.canonical_isbn)) end
     if link.series then
         table.insert(lines, _("Series") .. ": " .. tostring(link.series) .. (link.series_index and (" #" .. tostring(link.series_index)) or ""))
@@ -847,15 +888,20 @@ function MetadataScraper:confirmUndo(file)
     UIManager:show(box)
 end
 
-function MetadataScraper:applyResult(file, raw, result, quiet, query)
-    local changes, preview_err = Writer.preview(file, raw, result, self.settings.fields, self.settings.replace_existing)
+function MetadataScraper:applyResult(file, raw, result, quiet, query, options)
+    options = type(options) == "table" and options or {}
+    local apply_fields = type(options.fields) == "table" and options.fields or self.settings.fields
+    local apply_cover = options.download_cover
+    if apply_cover == nil then apply_cover = self.settings.download_cover end
+
+    local changes, preview_err = Writer.preview(file, raw, result, apply_fields, self.settings.replace_existing)
     if not changes then
         Diagnostics.log("Metadata preview", preview_err or "Could not calculate proposed changes", self.settings)
         if not quiet then UIManager:show(InfoMessage:new{ text = _("Could not calculate the metadata changes safely.") .. "\n" .. tostring(preview_err) }) end
         return false
     end
 
-    local wants_cover = self.settings.download_cover and result.cover_url ~= nil
+    local wants_cover = apply_cover and result.cover_url ~= nil
     if #changes == 0 and not wants_cover then
         if not quiet then UIManager:show(InfoMessage:new{ text = _("No selected metadata fields need changing.") }) end
         return true
@@ -873,7 +919,7 @@ function MetadataScraper:applyResult(file, raw, result, quiet, query)
     local previous_link = self.settings.book_links[file]
     local ok, write_err = true, nil
     if #changes > 0 then
-        ok, write_err = Writer.write(file, raw, result, self.settings.fields, self.settings.replace_existing)
+        ok, write_err = Writer.write(file, raw, result, apply_fields, self.settings.replace_existing)
     end
 
     if not ok then
@@ -927,6 +973,55 @@ function MetadataScraper:applyResult(file, raw, result, quiet, query)
     return applied_any
 end
 
+function MetadataScraper:showApplyFieldSelector(file, raw, query, r)
+    local selected = U.copy(self.settings.fields)
+    local include_cover = self.settings.download_cover
+    local dialog
+
+    local function render()
+        local rows = {}
+        for _, def in ipairs(FIELD_DEFS) do
+            local key, label = def[1], _(def[2])
+            table.insert(rows, {{
+                text = label .. (selected[key] and "  ✓" or ""), align = "left",
+                callback = function()
+                    selected[key] = not selected[key]
+                    UIManager:close(dialog)
+                    UIManager:nextTick(render)
+                end,
+            }})
+        end
+        table.insert(rows, {{
+            text = _("Cover") .. (include_cover and "  ✓" or ""), align = "left",
+            callback = function()
+                include_cover = not include_cover
+                UIManager:close(dialog)
+                UIManager:nextTick(render)
+            end,
+        }})
+        table.insert(rows, {
+            { text = _("Back"), callback = function() UIManager:close(dialog); self:showPreview(file, raw, query, r) end },
+            { text = _("Apply selected"), callback = function()
+                UIManager:close(dialog)
+                NetworkMgr:runWhenOnline(function()
+                    self:applyResult(file, raw, r, false, query, {
+                        fields = selected,
+                        download_cover = include_cover,
+                    })
+                end)
+            end },
+        })
+        dialog = ButtonDialog:new{
+            title = _("Apply fields for this book"),
+            title_align = "center",
+            buttons = rows,
+        }
+        UIManager:show(dialog)
+    end
+
+    render()
+end
+
 function MetadataScraper:showPreview(file, raw, query, r)
     local dialog
     local rows = {}
@@ -941,6 +1036,7 @@ function MetadataScraper:showPreview(file, raw, query, r)
     info(_("Language"), r.language)
     info("ISBN-13", r.isbn13); info("ISBN-10", r.isbn10)
     info(_("Source"), (r.source_label or r.source) .. " · " .. tostring(r.score or 0) .. "%")
+    info(_("Confidence"), confidence_label(r.confidence))
     if r.also_sources and #r.also_sources > 0 then info(_("Also found on"), U.join(r.also_sources, ", ")) end
     if r.match_reasons and #r.match_reasons > 0 then info(_("Match"), U.join(r.match_reasons, ", ")) end
     info(_("Cover"), r.cover_url and _("available") or _("not available"))
@@ -966,6 +1062,10 @@ function MetadataScraper:showPreview(file, raw, query, r)
         info(_("Change preview"), _("unavailable") .. ": " .. tostring(change_err))
     end
 
+    table.insert(rows, {{
+        text = _("Choose fields for this book…"), align = "left",
+        callback = function() UIManager:close(dialog); self:showApplyFieldSelector(file, raw, query, r) end,
+    }})
     table.insert(rows, {
         { text = _("Back"), callback = function() UIManager:close(dialog); self:searchOnline(file, raw, query) end },
         { text = _("Apply"), callback = function()
@@ -995,9 +1095,11 @@ function MetadataScraper:confirmBatch(path)
     local files = self:listEpubs(path)
     if #files == 0 then UIManager:show(InfoMessage:new{ text = _("No EPUB files found in this folder.") }); return end
     local count = math.min(#files, tonumber(self.settings.batch_limit) or 20)
+    local skip_note = self.settings.batch_skip_matched
+        and _("\n\nBooks already matched by Metadata Scraper will be skipped.") or ""
     local box
     box = ConfirmBox:new{
-        text = string.format(_("Fetch and automatically apply the best match for %d EPUBs?\n\nOnly matches at or above %d%% will be applied. This scans this folder only, not subfolders."), count, tonumber(self.settings.batch_threshold) or 90),
+        text = string.format(_("Fetch and automatically apply the best match for %d EPUBs?\n\nOnly matches at or above %d%% will be applied. This scans this folder only, not subfolders."), count, tonumber(self.settings.batch_threshold) or 90) .. skip_note,
         ok_text = _("Start"),
         ok_callback = function() UIManager:close(box); self:runBatch(files, count) end,
     }
@@ -1010,24 +1112,28 @@ function MetadataScraper:runBatch(files, count)
         local threshold = tonumber(self.settings.batch_threshold) or 90
         for i = 1, count do
             local file = files[i]
-            local raw, props = self:getRawProps(file)
-            local isbn10, isbn13 = U.extract_isbns(props.identifiers or raw.identifiers)
-            local q = {
-                title = props.title or file:match("([^/]+)%.epub$") or "",
-                author = (props.authors or ""):gsub("\n", ", "),
-                isbn = isbn13 or isbn10,
-                language = props.language,
-                series = props.series,
-            }
-            local busy = InfoMessage:new{ text = string.format(_("Metadata %d/%d\n%s"), i, count, q.title) }
-            UIManager:show(busy); UIManager:forceRePaint()
-            local results = self:searchProviders(q)
-            UIManager:close(busy)
-            local best = results and results[1]
-            if best and (best.score or 0) >= threshold then
-                if self:applyResult(file, raw, best, true, q) then applied = applied + 1 else failed = failed + 1 end
-            else
+            if self.settings.batch_skip_matched and self.settings.book_links[file] then
                 skipped = skipped + 1
+            else
+                local raw, props = self:getRawProps(file)
+                local isbn10, isbn13 = U.extract_isbns(props.identifiers or raw.identifiers)
+                local q = {
+                    title = props.title or file:match("([^/]+)%.epub$") or "",
+                    author = (props.authors or ""):gsub("\n", ", "),
+                    isbn = isbn13 or isbn10,
+                    language = props.language,
+                    series = props.series,
+                }
+                local busy = InfoMessage:new{ text = string.format(_("Metadata %d/%d\n%s"), i, count, q.title) }
+                UIManager:show(busy); UIManager:forceRePaint()
+                local results = self:searchProviders(q)
+                UIManager:close(busy)
+                local best = results and results[1]
+                if best and (best.score or 0) >= threshold then
+                    if self:applyResult(file, raw, best, true, q) then applied = applied + 1 else failed = failed + 1 end
+                else
+                    skipped = skipped + 1
+                end
             end
         end
         UIManager:show(InfoMessage:new{
@@ -1065,6 +1171,16 @@ function MetadataScraper:addToMainMenu(menu_items)
             },
             { text = _("Choose EPUB…"), callback = function() self:chooseEpub() end },
             { text = _("Batch folder…"), callback = function() self:chooseBatchFolder() end, separator = true },
+            {
+                text_func = function() return _("Batch threshold") .. ": " .. tostring(tonumber(self.settings.batch_threshold) or 90) .. "%" end,
+                callback = function() self:showBatchThresholdSelector() end,
+            },
+            {
+                text = _("Skip already matched in batch"),
+                checked_func = function() return self.settings.batch_skip_matched end,
+                callback = function() self.settings.batch_skip_matched = not self.settings.batch_skip_matched; self:saveSettings() end,
+                separator = true,
+            },
             {
                 text_func = function()
                     return _("Search source") .. ": " .. self:getSourceLabel()
