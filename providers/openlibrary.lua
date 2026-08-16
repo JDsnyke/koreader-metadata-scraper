@@ -10,6 +10,10 @@ local function request(url)
     })
 end
 
+function P.status()
+    return "ready · no credentials", "ready"
+end
+
 function P.search(query)
     local args = {
         "limit=8",
