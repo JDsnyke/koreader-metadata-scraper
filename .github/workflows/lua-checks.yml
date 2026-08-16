@@ -42,7 +42,7 @@ jobs:
           test -f dist/extracted/metadata_scraper.koplugin/main.lua
           test ! -e dist/extracted/metadata_scraper.koplugin/metadata_scraper.koplugin
           find dist/extracted/metadata_scraper.koplugin -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
-          sha256sum -c dist/metadata_scraper_koreader_v0.1.3.zip.sha256
+          (cd dist && sha256sum -c metadata_scraper_koreader_v0.1.3.zip.sha256)
 
       - name: Run regression tests
         run: |
