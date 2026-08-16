@@ -23,13 +23,11 @@ local function truthy(value, message)
     if not value then error(message or "expected truthy value", 2) end
 end
 
-local function reset_http_modules()
-    package.loaded["lib/http"] = nil
-    package.loaded["json"] = nil
-    package.loaded["socket.http"] = nil
-    package.loaded["ltn12"] = nil
-    package.loaded["socket"] = nil
-    package.loaded["socketutil"] = nil
+local function read_file(path)
+    local fh = assert(io.open(path, "rb"))
+    local data = fh:read("*all")
+    fh:close()
+    return data
 end
 
 local request_handler
@@ -105,6 +103,20 @@ local function load_http()
     return require("lib/http")
 end
 
+local function reset_writer_modules(http)
+    package.loaded["lib/http"] = http
+    package.loaded["lib/writer"] = nil
+    package.loaded["docsettings"] = nil
+    package.loaded["ui/event"] = nil
+    package.loaded["ui/uimanager"] = nil
+    package.preload["ui/event"] = function()
+        return { new = function(_, name, file) return { name = name, file = file } end }
+    end
+    package.preload["ui/uimanager"] = function()
+        return { broadcastEvent = function() end }
+    end
+end
+
 check("GET retries one transient HTTP failure", function()
     local calls = 0
     sleep_calls = 0
@@ -175,11 +187,7 @@ end)
 check("writer validates new cover before touching existing cover", function()
     request_handler = function() return 1, 200, {}, "OK" end
     local HTTP = load_http()
-    package.loaded["lib/http"] = HTTP
-    package.loaded["lib/writer"] = nil
-    package.loaded["docsettings"] = nil
-    package.loaded["ui/event"] = nil
-    package.loaded["ui/uimanager"] = nil
+    reset_writer_modules(HTTP)
 
     local touched_existing = false
     package.preload["docsettings"] = function()
@@ -189,12 +197,6 @@ check("writer validates new cover before touching existing cover", function()
                 return nil
             end,
         }
-    end
-    package.preload["ui/event"] = function()
-        return { new = function(_, name, file) return { name = name, file = file } end }
-    end
-    package.preload["ui/uimanager"] = function()
-        return { broadcastEvent = function() end }
     end
 
     local invalid = os.tmpname() .. ".jpg"
@@ -210,25 +212,137 @@ check("writer validates new cover before touching existing cover", function()
     os.remove(invalid)
 end)
 
-check("writer converts KOReader metadata exceptions into controlled failures", function()
+check("cover replacement restores old cover when KOReader returns failure", function()
     request_handler = function() return 1, 200, {}, "OK" end
     local HTTP = load_http()
-    package.loaded["lib/http"] = HTTP
-    package.loaded["lib/writer"] = nil
-    package.loaded["docsettings"] = nil
-    package.loaded["ui/event"] = nil
-    package.loaded["ui/uimanager"] = nil
+    reset_writer_modules(HTTP)
+
+    local old_path = os.tmpname() .. ".jpg"
+    local new_path = os.tmpname() .. ".png"
+    local fh = assert(io.open(old_path, "wb")); fh:write("OLD-COVER"); fh:close()
+    fh = assert(io.open(new_path, "wb")); fh:write("\137PNG\r\n\26\n" .. string.rep("x", 256)); fh:close()
+
+    package.preload["docsettings"] = function()
+        return {
+            findCustomCoverFile = function() return old_path end,
+            flushCustomCover = function() return nil end,
+        }
+    end
+
+    local Writer = require("lib/writer")
+    local ok, err = Writer.write_cover("book.epub", new_path)
+    eq(ok, nil)
+    truthy(tostring(err):find("previous cover restored", 1, true) ~= nil)
+    eq(read_file(old_path), "OLD-COVER")
+    os.remove(old_path); os.remove(new_path)
+end)
+
+check("cover replacement restores old cover when KOReader throws", function()
+    request_handler = function() return 1, 200, {}, "OK" end
+    local HTTP = load_http()
+    reset_writer_modules(HTTP)
+
+    local old_path = os.tmpname() .. ".jpg"
+    local new_path = os.tmpname() .. ".png"
+    local fh = assert(io.open(old_path, "wb")); fh:write("OLD-COVER-THROW"); fh:close()
+    fh = assert(io.open(new_path, "wb")); fh:write("\137PNG\r\n\26\n" .. string.rep("x", 256)); fh:close()
+
+    package.preload["docsettings"] = function()
+        return {
+            findCustomCoverFile = function() return old_path end,
+            flushCustomCover = function() error("simulated cover flush exception") end,
+        }
+    end
+
+    local Writer = require("lib/writer")
+    local ok, err = Writer.write_cover("book.epub", new_path)
+    eq(ok, nil)
+    truthy(tostring(err):find("simulated cover flush exception", 1, true) ~= nil)
+    truthy(tostring(err):find("previous cover restored", 1, true) ~= nil)
+    eq(read_file(old_path), "OLD-COVER-THROW")
+    os.remove(old_path); os.remove(new_path)
+end)
+
+check("metadata write false return restores exact old sidecar bytes", function()
+    request_handler = function() return 1, 200, {}, "OK" end
+    local HTTP = load_http()
+    reset_writer_modules(HTTP)
+
+    local metadata_path = os.tmpname() .. ".lua"
+    local fh = assert(io.open(metadata_path, "wb")); fh:write("ORIGINAL-METADATA-BYTES"); fh:close()
+
+    local ds = {
+        readSetting = function(_, key, default)
+            if key == "doc_props" then return { title = "Old" } end
+            if key == "custom_props" then return { title = "Old" } end
+            return default
+        end,
+        saveSetting = function() end,
+        flushCustomMetadata = function()
+            local wf = assert(io.open(metadata_path, "wb")); wf:write("PARTIAL-MUTATION"); wf:close()
+            return nil
+        end,
+    }
+    package.preload["docsettings"] = function()
+        return {
+            findCustomMetadataFile = function() return metadata_path end,
+            openSettingsFile = function() return ds end,
+        }
+    end
+
+    local Writer = require("lib/writer")
+    local ok, err = Writer.write("book.epub", { title = "Old" }, { title = "New" }, { title = true }, true)
+    eq(ok, nil)
+    truthy(tostring(err):find("previous metadata restored", 1, true) ~= nil)
+    eq(read_file(metadata_path), "ORIGINAL-METADATA-BYTES")
+    os.remove(metadata_path)
+end)
+
+check("metadata write exception restores exact old sidecar bytes", function()
+    request_handler = function() return 1, 200, {}, "OK" end
+    local HTTP = load_http()
+    reset_writer_modules(HTTP)
+
+    local metadata_path = os.tmpname() .. ".lua"
+    local fh = assert(io.open(metadata_path, "wb")); fh:write("ORIGINAL-METADATA-EXCEPTION"); fh:close()
+
+    local ds = {
+        readSetting = function(_, key, default)
+            if key == "doc_props" then return { title = "Old" } end
+            if key == "custom_props" then return { title = "Old" } end
+            return default
+        end,
+        saveSetting = function() end,
+        flushCustomMetadata = function()
+            local wf = assert(io.open(metadata_path, "wb")); wf:write("PARTIAL-BEFORE-THROW"); wf:close()
+            error("simulated metadata flush exception")
+        end,
+    }
+    package.preload["docsettings"] = function()
+        return {
+            findCustomMetadataFile = function() return metadata_path end,
+            openSettingsFile = function() return ds end,
+        }
+    end
+
+    local Writer = require("lib/writer")
+    local ok, err = Writer.write("book.epub", { title = "Old" }, { title = "New" }, { title = true }, true)
+    eq(ok, nil)
+    truthy(tostring(err):find("simulated metadata flush exception", 1, true) ~= nil)
+    truthy(tostring(err):find("previous metadata restored", 1, true) ~= nil)
+    eq(read_file(metadata_path), "ORIGINAL-METADATA-EXCEPTION")
+    os.remove(metadata_path)
+end)
+
+check("writer converts pre-write KOReader metadata exceptions into controlled failures", function()
+    request_handler = function() return 1, 200, {}, "OK" end
+    local HTTP = load_http()
+    reset_writer_modules(HTTP)
 
     package.preload["docsettings"] = function()
         return {
             findCustomMetadataFile = function() error("simulated KOReader metadata failure") end,
         }
-    end
-    package.preload["ui/event"] = function()
-        return { new = function(_, name, file) return { name = name, file = file } end }
-    end
-    package.preload["ui/uimanager"] = function()
-        return { broadcastEvent = function() end }
     end
 
     local Writer = require("lib/writer")
@@ -246,10 +360,10 @@ check("matcher discards malformed provider records instead of crashing", functio
         { source = "good", id = "1", title = "Matilda", authors = { "Roald Dahl" }, authors_text = "Roald Dahl" },
         { source = "other", id = "2", title = setmetatable({}, { __tostring = function() error("bad title") end }) },
     }
-    local ranked = Matcher.rank({ title = "Matilda", author = "Roald Dahl" }, results, { good = 1 })
-    truthy(type(ranked) == "table")
-    eq(#ranked, 1)
-    eq(ranked[1].source, "good")
+    Matcher.rank({ title = "Matilda", author = "Roald Dahl" }, results, { good = 1 })
+    truthy(type(results) == "table")
+    eq(#results, 1)
+    eq(results[1].source, "good")
 end)
 
 io.write(string.format("\n%d passed, %d failed\n", passed, failed))
