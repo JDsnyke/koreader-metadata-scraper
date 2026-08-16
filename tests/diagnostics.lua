@@ -64,7 +64,7 @@ check("support bundle contains configuration state but never credential values",
     local bundle = Diagnostics.bundle(settings, { koreader = "2026.07", device = "test device" })
 
     truthy(bundle:find("Metadata Scraper support diagnostics", 1, true) ~= nil)
-    truthy(bundle:find("Plugin version: 0.1.3", 1, true) ~= nil)
+    truthy(bundle:find("Plugin version: 0.1.4", 1, true) ~= nil)
     truthy(bundle:find("Hardcover: enabled, token configured", 1, true) ~= nil)
     truthy(bundle:find("Amazon: enabled, credentials configured", 1, true) ~= nil)
     truthy(bundle:find("Google Books: enabled, API key configured", 1, true) ~= nil)
