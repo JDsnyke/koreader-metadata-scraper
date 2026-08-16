@@ -8,6 +8,7 @@ local Version = require("lib/version")
 local M = {
     CURRENT_VERSION = Version.VERSION,
     release_api = "https://api.github.com/repos/JDsnyke/koreader-metadata-scraper/releases/latest",
+    releases_api = "https://api.github.com/repos/JDsnyke/koreader-metadata-scraper/releases?per_page=30",
     raw_base = "https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/",
 }
 
@@ -39,17 +40,14 @@ local function github_error(res)
     return "HTTP " .. tostring(res and res.code or "?")
 end
 
-function M.check()
-    local res, err = HTTP.json("GET", M.release_api, HEADERS)
-    if not res then return nil, err end
-    if res.code ~= 200 then return nil, github_error(res) end
-    local data = res.json or {}
+local function release_info(data, channel)
+    data = type(data) == "table" and data or {}
     local tag = tostring(data.tag_name or "")
-    if tag == "" then return nil, "Latest GitHub release has no tag" end
+    if tag == "" then return nil, "GitHub release has no tag" end
     local version = tag:gsub("^v", "")
     local asset_url
     for _, asset in ipairs(data.assets or {}) do
-        if tostring(asset.name or ""):match("metadata_scraper_koreader_v?[%d%.]+%.zip$") then
+        if tostring(asset.name or ""):match("metadata_scraper_koreader_v?[%d%.%-%a]+%.zip$") then
             asset_url = asset.browser_download_url
             break
         end
@@ -61,8 +59,30 @@ function M.check()
         notes = data.body or "",
         page_url = data.html_url,
         asset_url = asset_url,
+        prerelease = data.prerelease == true,
+        channel = channel or "stable",
         available = M.compare_versions(version, M.CURRENT_VERSION) > 0,
     }
+end
+
+function M.check(channel)
+    channel = channel == "prerelease" and "prerelease" or "stable"
+    if channel == "stable" then
+        local res, err = HTTP.json("GET", M.release_api, HEADERS)
+        if not res then return nil, err end
+        if res.code ~= 200 then return nil, github_error(res) end
+        return release_info(res.json, channel)
+    end
+
+    local res, err = HTTP.json("GET", M.releases_api, HEADERS)
+    if not res then return nil, err end
+    if res.code ~= 200 then return nil, github_error(res) end
+    for _, data in ipairs(res.json or {}) do
+        if type(data) == "table" and data.draft ~= true and data.prerelease == true then
+            return release_info(data, channel)
+        end
+    end
+    return nil, "No published Metadata Scraper prerelease is available"
 end
 
 local function valid_relpath(path)
@@ -122,11 +142,19 @@ local function raw_url(tag, path)
     return M.raw_base .. tag .. "/" .. path
 end
 
-local function validate_manifest_hashes(manifest)
+local function validate_manifest(manifest)
+    if type(manifest.files) ~= "table" or #manifest.files == 0 then
+        return nil, "Release manifest contains no files"
+    end
     if type(manifest.sha256) ~= "table" then
         return nil, "Release manifest contains no SHA-256 map"
     end
-    for _, path in ipairs(manifest.files or {}) do
+
+    local installed = {}
+    for _, path in ipairs(manifest.files) do
+        if not valid_relpath(path) then return nil, "Unsafe path in update manifest: " .. tostring(path) end
+        if installed[path] then return nil, "Duplicate path in update manifest: " .. tostring(path) end
+        installed[path] = true
         -- update.json is the signed-by-transport control document itself. It is
         -- written from the exact response body already parsed below, avoiding a
         -- self-referential hash requirement.
@@ -136,6 +164,17 @@ local function validate_manifest_hashes(manifest)
                 return nil, "Release manifest has no valid SHA-256 for " .. tostring(path)
             end
         end
+    end
+
+    if manifest.remove ~= nil and type(manifest.remove) ~= "table" then
+        return nil, "Release manifest remove list must be an array"
+    end
+    local removals = {}
+    for _, path in ipairs(manifest.remove or {}) do
+        if not valid_relpath(path) then return nil, "Unsafe path in update remove list: " .. tostring(path) end
+        if removals[path] then return nil, "Duplicate path in update remove list: " .. tostring(path) end
+        if installed[path] then return nil, "Update manifest cannot install and remove the same path: " .. tostring(path) end
+        removals[path] = true
     end
     return true
 end
@@ -157,11 +196,8 @@ function M.install(release, plugin_root)
     if tostring(manifest.version or "") ~= tostring(release.version) then
         return nil, "Release manifest version does not match the GitHub release"
     end
-    if type(manifest.files) ~= "table" or #manifest.files == 0 then
-        return nil, "Release manifest contains no files"
-    end
-    local hashes_ok, hashes_err = validate_manifest_hashes(manifest)
-    if not hashes_ok then return nil, hashes_err end
+    local manifest_ok, manifest_validation_err = validate_manifest(manifest)
+    if not manifest_ok then return nil, manifest_validation_err end
 
     local cache_root = DataStorage:getDataDir() .. "/cache/metadata_scraper/updater"
     local stage_root = cache_root .. "/stage-" .. release.version
@@ -171,7 +207,6 @@ function M.install(release, plugin_root)
 
     -- Download and verify everything before touching the installed plugin.
     for _, path in ipairs(manifest.files) do
-        if not valid_relpath(path) then return nil, "Unsafe path in update manifest: " .. tostring(path) end
         local dest = stage_root .. "/" .. path
         local dir = dirname(dest)
         if dir then util.makePath(dir) end
@@ -201,18 +236,28 @@ function M.install(release, plugin_root)
         end
     end
 
-    local applied = {}
     local existed = {}
-
-    -- Back up current files before replacing any of them.
-    for _, path in ipairs(manifest.files) do
-        local target = plugin_root .. "/" .. path
-        local old = read_file(target)
+    local backup_paths = {}
+    local function back_up(path)
+        if backup_paths[path] then return true end
+        backup_paths[path] = true
+        local old = read_file(plugin_root .. "/" .. path)
         if old ~= nil then
             existed[path] = true
             local ok, err = write_file(backup_root .. "/" .. path, old)
             if not ok then return nil, "Could not back up " .. path .. ": " .. tostring(err) end
         end
+        return true
+    end
+
+    -- Back up current files that may be replaced or removed before mutation.
+    for _, path in ipairs(manifest.files) do
+        local ok, err = back_up(path)
+        if not ok then return nil, err end
+    end
+    for _, path in ipairs(manifest.remove or {}) do
+        local ok, err = back_up(path)
+        if not ok then return nil, err end
     end
 
     -- Re-verify staged payloads immediately before applying them. This is cheap
@@ -227,27 +272,46 @@ function M.install(release, plugin_root)
         end
     end
 
-    -- Apply staged files. If anything fails, roll back files already touched.
+    local touched = {}
+    local function rollback()
+        for i = #touched, 1, -1 do
+            local path = touched[i]
+            local target = plugin_root .. "/" .. path
+            if existed[path] then
+                copy_file(backup_root .. "/" .. path, target)
+            else
+                os.remove(target)
+            end
+        end
+    end
+
+    -- Apply staged files. If anything fails, roll back every path already touched.
     for _, path in ipairs(manifest.files) do
         local target = plugin_root .. "/" .. path
         local temp_target = target .. ".update-new"
         local ok, err = copy_file(stage_root .. "/" .. path, temp_target)
-        if ok then
-            ok, err = os.rename(temp_target, target)
-        end
+        if ok then ok, err = os.rename(temp_target, target) end
         if not ok then
             os.remove(temp_target)
-            for _, done in ipairs(applied) do
-                local done_target = plugin_root .. "/" .. done
-                if existed[done] then
-                    copy_file(backup_root .. "/" .. done, done_target)
-                else
-                    os.remove(done_target)
-                end
-            end
+            rollback()
             return nil, "Could not install " .. path .. ": " .. tostring(err)
         end
-        table.insert(applied, path)
+        table.insert(touched, path)
+    end
+
+    -- Remove explicitly obsolete files only after all replacements succeed.
+    -- Only regular readable files are considered present, so the updater never
+    -- recursively deletes directories from a manifest entry.
+    for _, path in ipairs(manifest.remove or {}) do
+        if existed[path] then
+            local target = plugin_root .. "/" .. path
+            local ok, err = os.remove(target)
+            if not ok then
+                rollback()
+                return nil, "Could not remove obsolete file " .. path .. ": " .. tostring(err)
+            end
+            table.insert(touched, path)
+        end
     end
 
     return true
