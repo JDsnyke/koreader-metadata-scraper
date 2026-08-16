@@ -1,0 +1,33 @@
+name: Restore v0.1.3 README
+
+on:
+  push:
+    branches:
+      - agent/v0.1.3-reliability-matching
+    paths:
+      - .github/workflows/restore-v013-readme.yml
+
+permissions:
+  contents: write
+
+jobs:
+  restore:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: agent/v0.1.3-reliability-matching
+          fetch-depth: 0
+
+      - name: Restore README from final green RC
+        run: git show e4ad96589f68cd1d7548e9f95256eb0ef7e6aefc:README.md > README.md
+
+      - name: Commit restored README
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add README.md
+          git diff --cached --check
+          git commit -m "Restore v0.1.3 README"
+          git push origin HEAD:agent/v0.1.3-reliability-matching
