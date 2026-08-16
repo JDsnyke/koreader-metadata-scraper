@@ -164,7 +164,7 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Provider-specific cooldown remains authoritative.
 - [x] Retry/failure events enter sanitized diagnostics.
 - [x] Failed download handles close before cleanup.
-- [ ] Provider-specific batch pacing — v0.1.4.
+- [x] Provider-specific batch pacing — v0.1.4 branch; conservative burst-control floors only, with provider cooldowns still authoritative.
 
 ## J. Cover validation and rollback — #25 core
 
@@ -191,7 +191,7 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Provider `status()` hooks do not make a network call simply to render UI.
 - [x] Google exposes active cooldown.
 - [x] Amazon exposes cached-token readiness.
-- [ ] Persist/rotate diagnostics across restarts — v0.1.4.
+- [x] Persist/rotate diagnostics across restarts — v0.1.4 branch.
 - [ ] Richer safe device/KOReader runtime metadata — v0.1.4.
 
 ## L. SHA-256 updater integrity — #26
@@ -254,48 +254,48 @@ Device gate before stable Release publication:
 
 ## A. Updater deletion and settings migrations — #27
 
-- [ ] Optional validated `remove` list.
-- [ ] Back up removed files before removal.
-- [ ] Restore removed files on later failure.
-- [ ] Settings schema version.
-- [ ] Ordered migration functions.
-- [ ] Regression paths from oldest supported settings format.
+- [x] Optional validated `remove` list.
+- [x] Back up removed files before removal.
+- [x] Restore removed files on later failure.
+- [x] Settings schema version.
+- [x] Ordered migration functions.
+- [x] Regression paths from oldest supported settings format.
 
 ## B. Provider pacing/status depth — #22/#20
 
-- [ ] Provider-specific minimum request intervals for larger batches.
+- [x] Provider-specific minimum request intervals for larger batches.
 - [ ] Honor Retry-After/cooldown consistently.
 - [ ] Continue healthy providers while another is cooling down.
-- [ ] Optional persisted last health/test state.
+- [x] Optional persisted last health/test state.
 
 ## C. Persistent diagnostics — #46/#47
 
-- [ ] Bounded persistence model.
-- [ ] Timestamp/provider/operation/elapsed/status/result-count metadata.
-- [ ] Never persist full provider response bodies by default.
-- [ ] Rotation/size cap.
-- [ ] Clear log action.
-- [ ] Re-redact on export.
+- [x] Bounded persistence model.
+- [x] Timestamp/provider/operation/elapsed/status/result-count metadata.
+- [x] Never persist full provider response bodies by default.
+- [x] Rotation/size cap.
+- [x] Clear log action.
+- [x] Re-redact on export.
 
 ## D. Credential UX — #30
 
-- [ ] Mask saved credential identifiers where practical.
-- [ ] Validate Amazon credential-version input before save.
+- [x] Mask saved credential identifiers where practical.
+- [x] Validate Amazon credential-version input before save.
 - [ ] Never echo secret values in errors.
 
 ## E. Settings backup/reset — #29
 
-- [ ] Reset matching settings.
-- [ ] Reset provider settings with warning.
-- [ ] Reset all plugin settings.
-- [ ] Credential-free configuration export by default if backup/export is added.
+- [x] Reset matching settings.
+- [x] Reset provider settings with warning.
+- [x] Reset all plugin settings.
+- [x] Credential-free configuration export by default.
 
 ## F. Stable/prerelease channel — #28
 
-- [ ] Stable remains default.
-- [ ] Optional test channel follows published prereleases only, never arbitrary `main`.
-- [ ] Clearly label test updates.
-- [ ] Easy return to Stable.
+- [x] Stable remains default.
+- [x] Optional Test channel follows published prereleases only, never arbitrary `main`.
+- [x] Clearly label Test-channel prerelease updates.
+- [x] Easy return to Stable.
 
 ---
 

@@ -19,7 +19,7 @@
     "providers/openlibrary.lua"
   ],
   "sha256": {
-    "README.md": "97ce9e4dabcec36a23e195a3cf4a3365f7bdf05b8e1dcf87e73a33bc8b1f3865",
+    "README.md": "e43ebd96242dec4258bccbeb0b0bfb2c1e35ea8034e9e621c5e62857c9ee1c3b",
     "_meta.lua": "9463ff5c8c17d64b8d5d7a841e2ba3beab8fbdf9fca556d1b559de968cd1877b",
     "lib/diagnostics.lua": "b7e96e3cc865a4f0c24723d119058cfb5ecd28836a2e0f7038a863839eaccf67",
     "lib/http.lua": "78b72b303578241b6db3524d4204d0e3c92aabcec0d0f118268f07af61d3846b",

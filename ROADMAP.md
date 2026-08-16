@@ -2,7 +2,7 @@
 
 This roadmap is the planning source of truth for Metadata Scraper for KOReader. It is intentionally broader than the current release branch and includes metadata lifecycle, batch workflows, file organization, interoperability, and audiobook support.
 
-> **Status note:** v0.1.3 is currently being developed on `agent/v0.1.3-reliability-matching`. Nothing in this roadmap implies that unreleased work is merged into `main` or published.
+> **Status note:** v0.1.3 is published. v0.1.4 is currently being developed on `agent/v0.1.4-navigation-zenpm`; it is not merged or released. The v0.1.4 branch now includes navigation/ZenPM work plus the first remaining hardening tranche (settings migrations, updater removals/channels, persistent diagnostics, provider health, credential validation, settings tools, and batch pacing).
 
 ## Prioritization model
 

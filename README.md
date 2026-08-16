@@ -53,13 +53,15 @@ Exit KOReader before using normal USB mass storage. When KOReader is running, a 
 
 ## Install with ZenPM
 
-Metadata Scraper exposes a ZenPM v1 repository manifest directly from this repository. In **ZenPM → Sources → Add repository**, paste this repository URL exactly:
+Metadata Scraper is being moved to a dedicated static ZenPM repository, following the same base-URL + `manifest.json` model used by the official Zen Labs repository.
 
-`https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/main/`
+Once GitHub Pages is enabled for this repository, add this **base URL** in **ZenPM → Sources → Add repository**:
 
-ZenPM will read `manifest.json` from that base URL and list **JDsnyke KOReader Plugins → Metadata Scraper**. Use the raw-content base URL above rather than the normal GitHub webpage URL; ZenPM repository sources must resolve `manifest.json` directly.
+`https://jdsnyke.github.io/koreader-metadata-scraper/`
 
-After adding it, refresh ZenPM sources. Published Metadata Scraper releases can then be installed or updated from the package listing. See [`docs/zenpm.md`](docs/zenpm.md) for repository-format and maintenance details.
+Do not append `manifest.json`; ZenPM requests that file from the repository root itself. The previous `raw.githubusercontent.com` source is no longer recommended because the Kindle ZenPM source detector performs a direct web fetch and expects a normal static repository endpoint.
+
+The Pages catalog intentionally tracks only published stable releases. During v0.1.4 development it continues to advertise published v0.1.3 rather than an unreleased branch build. See [`docs/zenpm.md`](docs/zenpm.md) for the repository layout, Pages activation step, and release-maintenance process.
 
 ## Installation
 
@@ -91,6 +93,7 @@ metadata_scraper.koplugin/
 │   ├── diagnostics.lua
 │   ├── http.lua
 │   ├── matcher.lua
+│   ├── settings.lua
 │   ├── updater.lua
 │   ├── util.lua
 │   ├── version.lua
@@ -186,7 +189,9 @@ enabled
 source_scope
 batch_threshold
 batch_skip_matched
+update_channel
 auto_update_check
+settings_schema_version
 ```
 
 Keep valid Lua quoting/commas and restart KOReader after editing.

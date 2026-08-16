@@ -11,8 +11,21 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 
 ### ZenPM
 
-- Document the canonical ZenPM-compatible repository source URL: `https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/main/`.
-- Clarify that users should add the raw-content repository base rather than the normal GitHub webpage URL so ZenPM can resolve `manifest.json`.
+- Replace the raw GitHub source recommendation with a Pages-ready static ZenPM repository at `https://jdsnyke.github.io/koreader-metadata-scraper/`, matching ZenPM's base-URL + `manifest.json` repository model.
+- Add a human-readable repository landing page plus a stable `manifest.json`, package README, and `versions.json` under `zenpm-repo/`.
+- Keep the ZenPM public catalog pinned to the latest actually published stable release while v0.1.4 remains unreleased.
+- Record the published v0.1.3 release asset URL, byte size, and GitHub-reported SHA-256 digest in the Pages repository metadata.
+
+### Hardening and supportability
+
+- Add settings schema version 2 with ordered migration helpers for legacy installations.
+- Add credential-free settings export plus separate matching/provider/all-settings reset actions.
+- Validate Amazon credential version before saving and mask Credential ID/Partner Tag entry fields.
+- Persist a bounded, rotated, sanitized diagnostics log across KOReader restarts, including operation, status, elapsed time, and result-count metadata.
+- Persist the last provider connection-test status and elapsed time in plugin settings.
+- Add conservative per-provider request pacing during larger batch operations without overriding provider-specific Retry-After/cooldown behavior.
+- Add rollback-safe updater `remove` support for explicitly obsolete files; unsafe, duplicate, or install/remove-overlap paths fail closed.
+- Add Stable and Test update channels. Stable remains the default; Test follows published GitHub prereleases only and never arbitrary `main` commits.
 
 ## [0.1.3] - Unreleased
 
