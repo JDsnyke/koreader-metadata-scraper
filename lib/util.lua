@@ -83,17 +83,15 @@ function M.token_similarity(a, b)
     return intersection / union
 end
 
--- Normalize a single author for comparison only. Stored/displayed author values are
--- never rewritten from this helper. A simple "Surname, Given" form is flipped so it
--- compares cleanly with "Given Surname", while token comparison remains tolerant of
--- punctuation and ordering differences.
+-- Comparison-only author canonicalization. Sorting normalized tokens makes
+-- "Dinniman, Matt" equivalent to "Matt Dinniman" without trying to guess whether
+-- a comma means surname-first notation or separates multiple authors. Stored and
+-- displayed author text is never rewritten from this helper.
 function M.normalize_author(s)
-    s = M.trim(tostring(s or ""))
-    local left, right = s:match("^([^,]+),%s*([^,]+)$")
-    if left and right and M.nonempty(left) and M.nonempty(right) then
-        s = M.trim(right) .. " " .. M.trim(left)
-    end
-    return M.normalize(s)
+    local tokens = {}
+    for tok in M.normalize(s):gmatch("%S+") do table.insert(tokens, tok) end
+    table.sort(tokens)
+    return table.concat(tokens, " ")
 end
 
 function M.author_similarity(a, b)
