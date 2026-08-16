@@ -25,6 +25,7 @@ local function contains(values, wanted)
 end
 
 local Matcher = require("lib/matcher")
+local U = require("lib/util")
 
 check("conflicting ISBN caps otherwise exact title and author", function()
     local score, reasons = Matcher.score({
@@ -86,6 +87,20 @@ check("strong author conflict penalizes exact title", function()
     truthy(Matcher.confidence(score, reasons) == "Weak")
 end)
 
+check("surname-first author compares as exact without rewriting display text", function()
+    local score, reasons = Matcher.score({
+        title = "Dungeon Crawler Carl",
+        author = "Matt Dinniman",
+    }, {
+        title = "Dungeon Crawler Carl",
+        authors = { "Dinniman, Matt" },
+        authors_text = "Dinniman, Matt",
+    })
+    truthy(score >= 95, "equivalent surname-first author should retain strong score")
+    truthy(contains(reasons, "author exact"))
+    truthy(U.normalize_author("Dinniman, Matt") == "matt dinniman")
+end)
+
 check("strong series conflict prevents automatic acceptance", function()
     local score, reasons = Matcher.score({
         title = "The Beginning",
@@ -106,6 +121,7 @@ check("exact ISBN remains authoritative even when text differs", function()
         title = "Local Metadata Title",
         author = "Local Author",
         isbn = "9780140328721",
+        media_kind = "ebook",
     }, {
         title = "Provider Edition Title",
         authors = { "Provider Author" },
@@ -115,6 +131,73 @@ check("exact ISBN remains authoritative even when text differs", function()
     truthy(score == 100)
     truthy(contains(reasons, "ISBN exact"))
     truthy(Matcher.confidence(score, reasons) == "Exact")
+end)
+
+check("known audiobook result cannot auto-apply to EPUB", function()
+    local score, reasons = Matcher.score({
+        title = "Dungeon Crawler Carl",
+        author = "Matt Dinniman",
+        media_kind = "ebook",
+    }, {
+        title = "Dungeon Crawler Carl",
+        authors = { "Matt Dinniman" },
+        authors_text = "Matt Dinniman",
+        format = "Unabridged Audiobook",
+    })
+    truthy(score <= 35, "audiobook edition must remain below every batch preset")
+    truthy(contains(reasons, "format conflict"))
+    truthy(Matcher.confidence(score, reasons) == "Weak")
+end)
+
+check("known print result cannot auto-apply to EPUB", function()
+    local score, reasons = Matcher.score({
+        title = "Matilda",
+        author = "Roald Dahl",
+        media_kind = "ebook",
+    }, {
+        title = "Matilda",
+        authors = { "Roald Dahl" },
+        authors_text = "Roald Dahl",
+        binding = "Paperback",
+    })
+    truthy(score <= 65, "known print edition should require manual review")
+    truthy(contains(reasons, "format conflict"))
+    truthy(Matcher.confidence(score, reasons) == "Weak")
+end)
+
+check("format conflict downgrades even an exact ISBN", function()
+    local score, reasons = Matcher.score({
+        title = "Matilda",
+        author = "Roald Dahl",
+        isbn = "9780140328721",
+        media_kind = "ebook",
+    }, {
+        title = "Matilda",
+        authors = { "Roald Dahl" },
+        authors_text = "Roald Dahl",
+        isbn13 = "9780140328721",
+        binding = "Hardcover",
+    })
+    truthy(score == 65)
+    truthy(contains(reasons, "ISBN exact"))
+    truthy(contains(reasons, "format conflict"))
+    truthy(Matcher.confidence(score, reasons) == "Weak")
+end)
+
+check("matching ebook format strengthens clean textual evidence", function()
+    local score, reasons = Matcher.score({
+        title = "Matilda",
+        author = "Roald Dahl",
+        media_kind = "ebook",
+    }, {
+        title = "Matilda",
+        authors = { "Roald Dahl" },
+        authors_text = "Roald Dahl",
+        binding = "Kindle Edition",
+    })
+    truthy(score >= 95)
+    truthy(contains(reasons, "format match"))
+    truthy(Matcher.confidence(score, reasons) == "Strong")
 end)
 
 check("rank attaches confidence class to provider results", function()
