@@ -23,7 +23,8 @@ jobs:
       - run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm scripts/apply_v014_patch.py .github/workflows/run-v014-patch.yml
-          git add main.lua lib/version.lua update.json manifest.json README.md docs/zenpm.md CHANGELOG.md tests/run.lua tests/navigation.lua .github/workflows/lua-checks.yml
+          git rm scripts/apply_v014_patch.py
+          git restore .github/workflows/lua-checks.yml
+          git add main.lua lib/version.lua update.json manifest.json README.md docs/zenpm.md CHANGELOG.md tests/run.lua tests/navigation.lua
           git commit -m "Start v0.1.4 navigation and ZenPM UX work"
           git push origin HEAD:agent/v0.1.4-navigation-zenpm
