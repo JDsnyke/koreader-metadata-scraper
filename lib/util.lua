@@ -83,6 +83,57 @@ function M.token_similarity(a, b)
     return intersection / union
 end
 
+-- Normalize a single author for comparison only. Stored/displayed author values are
+-- never rewritten from this helper. A simple "Surname, Given" form is flipped so it
+-- compares cleanly with "Given Surname", while token comparison remains tolerant of
+-- punctuation and ordering differences.
+function M.normalize_author(s)
+    s = M.trim(tostring(s or ""))
+    local left, right = s:match("^([^,]+),%s*([^,]+)$")
+    if left and right and M.nonempty(left) and M.nonempty(right) then
+        s = M.trim(right) .. " " .. M.trim(left)
+    end
+    return M.normalize(s)
+end
+
+function M.author_similarity(a, b)
+    local na = M.normalize_author(a)
+    local nb = M.normalize_author(b)
+    if na == "" or nb == "" then return 0 end
+    if na == nb then return 1 end
+    return M.token_similarity(na, nb)
+end
+
+-- Return a broad media kind only when a provider value is explicit enough to be
+-- useful as edition evidence. Unknown/ambiguous values intentionally return nil.
+function M.format_kind(v)
+    local s = M.normalize(v)
+    if s == "" then return nil end
+
+    local audio_markers = {
+        "audiobook", "audio book", "audible", "audio cd", "audio compact disc",
+        "mp3 cd", "mp3 audiobook", "unabridged", "abridged", "full cast",
+    }
+    for _, marker in ipairs(audio_markers) do
+        if s:find(marker, 1, true) then return "audiobook" end
+    end
+
+    local ebook_markers = { "ebook", "e book", "kindle", "digital book", "electronic book" }
+    for _, marker in ipairs(ebook_markers) do
+        if s:find(marker, 1, true) then return "ebook" end
+    end
+
+    local print_markers = {
+        "paperback", "hardcover", "hardback", "mass market", "library binding",
+        "board book", "spiral bound", "print book",
+    }
+    for _, marker in ipairs(print_markers) do
+        if s:find(marker, 1, true) then return "print" end
+    end
+
+    return nil
+end
+
 local function raw_isbn(v)
     if not v then return nil end
     local s = tostring(v):upper():gsub("[^0-9X]", "")
