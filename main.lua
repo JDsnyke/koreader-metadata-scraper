@@ -904,8 +904,10 @@ function MetadataScraper:applyResult(file, raw, result, quiet, query, options)
     local apply_fields = type(options.fields) == "table" and options.fields or self.settings.fields
     local apply_cover = options.download_cover
     if apply_cover == nil then apply_cover = self.settings.download_cover end
+    local replace_existing = options.replace_existing
+    if replace_existing == nil then replace_existing = self.settings.replace_existing end
 
-    local changes, preview_err = Writer.preview(file, raw, result, apply_fields, self.settings.replace_existing)
+    local changes, preview_err = Writer.preview(file, raw, result, apply_fields, replace_existing)
     if not changes then
         Diagnostics.log("Metadata preview", preview_err or "Could not calculate proposed changes", self.settings)
         if not quiet then UIManager:show(InfoMessage:new{ text = _("Could not calculate the metadata changes safely.") .. "\n" .. tostring(preview_err) }) end
@@ -930,14 +932,27 @@ function MetadataScraper:applyResult(file, raw, result, quiet, query, options)
     local previous_link = self.settings.book_links[file]
     local ok, write_err = true, nil
     if #changes > 0 then
-        ok, write_err = Writer.write(file, raw, result, apply_fields, self.settings.replace_existing)
+        ok, write_err = Writer.write(file, raw, result, apply_fields, replace_existing)
     end
 
     if not ok then
-        Writer.discard_snapshot(snapshot)
+        -- Writer.write has its own lightweight transaction rollback, but keep the
+        -- user-facing snapshot until we independently confirm the exact prior state.
+        local restored, restore_err = Writer.restore_snapshot(file, snapshot)
+        local recovery_note = ""
+        if restored then
+            Writer.discard_snapshot(snapshot)
+        else
+            self:storeUndoRecord(file, snapshot, previous_link)
+            recovery_note = "\n" .. _("Automatic rollback could not be confirmed. The recovery snapshot was retained under Undo last metadata update.")
+            Diagnostics.log("Metadata rollback", restore_err or "Could not restore user-facing snapshot", self.settings)
+        end
         Diagnostics.log("Metadata writer", write_err or "Could not write KOReader custom metadata", self.settings)
         if not quiet then
-            UIManager:show(InfoMessage:new{ text = _("Could not write KOReader custom metadata.") .. (write_err and ("\n" .. tostring(write_err)) or "") })
+            UIManager:show(InfoMessage:new{
+                text = _("Could not write KOReader custom metadata.")
+                    .. (write_err and ("\n" .. tostring(write_err)) or "") .. recovery_note,
+            })
         end
         return false
     end
@@ -959,15 +974,38 @@ function MetadataScraper:applyResult(file, raw, result, quiet, query, options)
 
     local text_applied = #changes > 0
     local applied_any = text_applied or cover_ok == true
+    local recovery_snapshot_retained = false
+
+    -- A cover-only failure should leave the book exactly as it was. The cover
+    -- writer normally restores the prior bytes itself; verify that state from the
+    -- user-facing snapshot before discarding the last recovery copy.
+    if wants_cover and not cover_ok and not text_applied then
+        local restored, restore_err = Writer.restore_snapshot(file, snapshot)
+        if restored then
+            Writer.discard_snapshot(snapshot)
+            snapshot = nil
+        else
+            self:storeUndoRecord(file, snapshot, previous_link)
+            recovery_snapshot_retained = true
+            snapshot = nil
+            cover_err = tostring(cover_err or _("Could not save custom cover"))
+                .. "; " .. _("automatic rollback could not be confirmed; recovery snapshot retained")
+            Diagnostics.log("Cover rollback", restore_err or "Could not restore user-facing snapshot", self.settings)
+        end
+    end
+
     if applied_any then
         self:storeUndoRecord(file, snapshot, previous_link)
         self:recordLink(file, result, query, changes, cover_ok)
-    else
+    elseif snapshot then
         Writer.discard_snapshot(snapshot)
     end
 
     if wants_cover and not cover_ok then
         Diagnostics.log("Cover writer", cover_err or "Could not save custom cover", self.settings)
+        if recovery_snapshot_retained then
+            Diagnostics.log("Cover recovery", "Recovery snapshot retained for manual Undo", self.settings)
+        end
     end
 
     if not quiet then
@@ -1155,6 +1193,11 @@ end
 function MetadataScraper:runBatch(files, count)
     NetworkMgr:runWhenOnline(function()
         local threshold = tonumber(self.settings.batch_threshold) or 90
+        local batch_options = {
+            fields = U.copy(self.settings.fields),
+            download_cover = self.settings.download_cover,
+            replace_existing = self.settings.replace_existing,
+        }
         local plan = {
             apply = {},
             skipped = 0,
@@ -1162,6 +1205,7 @@ function MetadataScraper:runBatch(files, count)
             failed = 0,
             total = count,
             threshold = threshold,
+            options = batch_options,
         }
 
         for i = 1, count do
@@ -1190,6 +1234,7 @@ function MetadataScraper:runBatch(files, count)
                         raw = raw,
                         query = q,
                         result = best,
+                        options = batch_options,
                     })
                 elseif all_attempted_providers_failed(self:providerOrder(), errors or {}, counts or {}) then
                     plan.failed = plan.failed + 1
@@ -1210,7 +1255,7 @@ function MetadataScraper:applyBatchPlan(plan)
             local title = (entry.result and entry.result.title) or (entry.query and entry.query.title) or entry.file
             local busy = InfoMessage:new{ text = string.format(_("Applying %d/%d\n%s"), i, #plan.apply, tostring(title or "")) }
             UIManager:show(busy); UIManager:forceRePaint()
-            local ok = self:applyResult(entry.file, entry.raw, entry.result, true, entry.query)
+            local ok = self:applyResult(entry.file, entry.raw, entry.result, true, entry.query, entry.options or plan.options)
             UIManager:close(busy)
             if ok then applied = applied + 1 else failed = failed + 1 end
         end
