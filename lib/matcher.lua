@@ -15,6 +15,25 @@ local function add_reason(reasons, label)
     table.insert(reasons, label)
 end
 
+local function reason_set(reasons)
+    local out = {}
+    for _, reason in ipairs(reasons or {}) do out[reason] = true end
+    return out
+end
+
+function M.confidence(score, reasons)
+    score = tonumber(score) or 0
+    local set = reason_set(reasons)
+
+    if set["ISBN exact"] and score == 100 then return "Exact" end
+    if set["ISBN conflict"] then return "Weak" end
+
+    local hard_conflict = set["author conflict"] or set["language conflict"] or set["series conflict"]
+    if score >= 90 and not hard_conflict then return "Strong" end
+    if score >= 65 and not set["author conflict"] then return "Possible" end
+    return "Weak"
+end
+
 function M.score(query, r)
     query = type(query) == "table" and query or {}
     r = type(r) == "table" and r or {}
@@ -178,6 +197,7 @@ function M.rank(query, results, source_priority)
             if ok and type(score) == "number" then
                 r.score = score
                 r.match_reasons = type(reasons) == "table" and reasons or {}
+                r.confidence = M.confidence(score, r.match_reasons)
                 table.insert(valid, r)
             end
         end
