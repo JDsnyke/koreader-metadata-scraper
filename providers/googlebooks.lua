@@ -58,6 +58,17 @@ local function handle_rate_limit(res)
     return detail .. " (cooldown " .. tostring(wait) .. "s)"
 end
 
+function P.status(settings)
+    if not U.nonempty(settings and settings.google_api_key) then
+        return "credentials missing", "missing"
+    end
+    local remaining = cooldown_until - os.time()
+    if remaining > 0 then
+        return "cooling down " .. tostring(math.max(1, remaining)) .. "s", "cooldown"
+    end
+    return "ready", "ready"
+end
+
 function P.search(query, settings)
     local now = os.time()
     if now < cooldown_until then
