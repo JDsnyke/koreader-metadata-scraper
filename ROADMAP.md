@@ -52,23 +52,23 @@ A higher score means “more valuable to prioritize,” not “must be implement
 | 16 | #30 | Credential masking and validation | **84** | 4 | 5 | 3 | 5 | 4 | v0.1.4; diagnostics redaction core already in v0.1.3 |
 | 17 | #10 | Current vs proposed result details | **83** | 5 | 4 | 3 | 5 | 3 | **v0.1.3 core expedited**; richer field/source comparison v0.2.0 |
 | 18 | #40 | Better author normalization | **83** | 4 | 4 | 4 | 5 | 4 | v0.2.1 |
-| 19 | #44 | Explain-score details | **83** | 4 | 4 | 4 | 5 | 4 | v0.2.0; match reasons already started in v0.1.3 |
+| 19 | #44 | Explain-score details | **83** | 4 | 4 | 4 | 5 | 4 | **v0.1.3 match-reason core**; numeric/component breakdown later |
 | 20 | #52 | Audiobook metadata support | **82** | 5 | 3 | 5 | 5 | 1 | v0.3.0 |
 | 21 | #23 | Network-resilient batch resume | **81** | 4 | 5 | 4 | 4 | 2 | v0.2.0 |
-| 22 | #20 | Provider cooldown/status UI | **79** | 4 | 4 | 3 | 5 | 4 | v0.1.4 |
+| 22 | #20 | Provider cooldown/status UI | **79** | 4 | 4 | 3 | 5 | 4 | **v0.1.3 core expedited**; richer persisted health/status later |
 | 23 | #7 | Better title cleaning | **78** | 4 | 3 | 4 | 5 | 4 | v0.2.1 |
 | 24 | #19 | Search/session cache | **78** | 4 | 3 | 4 | 5 | 4 | v0.2.1 |
 | 25 | #41 | Multi-author role handling | **78** | 4 | 4 | 4 | 4 | 3 | v0.2.1 |
 | 26 | #50 | Use filename as search / filename parser | **78** | 4 | 3 | 4 | 5 | 4 | v0.2.2 |
 | 27 | #5 | Cover quality detection | **76** | 4 | 4 | 3 | 4 | 4 | v0.2.1 |
-| 28 | #11 | Select fields at apply time | **76** | 4 | 4 | 3 | 4 | 4 | v0.2.0 |
+| 28 | #11 | Select fields at apply time | **76** | 4 | 4 | 3 | 4 | 4 | **v0.1.3 expedited**; one-off selection does not alter defaults |
 | 29 | #13 | Metadata history | **76** | 4 | 4 | 4 | 4 | 2 | v0.2.0; v0.1.3 stores one prior state only |
 | 30 | #29 | Backup/restore/reset settings | **76** | 4 | 4 | 3 | 4 | 4 | v0.1.4 |
 | 31 | #33 | Calibre compatibility awareness | **76** | 4 | 4 | 4 | 4 | 2 | v0.2.2 |
 | 32 | #37 | Description cleanup | **76** | 4 | 3 | 3 | 5 | 5 | v0.2.1 |
-| 33 | #43 | Confidence classes | **76** | 4 | 3 | 3 | 5 | 5 | v0.2.1 |
+| 33 | #43 | Confidence classes | **76** | 4 | 3 | 3 | 5 | 5 | **v0.1.3 expedited** — Exact/Strong/Possible/Weak |
 | 34 | #15 | Review borderline matches | **74** | 4 | 4 | 3 | 4 | 3 | v0.2.0 |
-| 35 | #18 | Skip already matched books | **74** | 4 | 3 | 3 | 5 | 4 | v0.2.0 |
+| 35 | #18 | Skip already matched books | **74** | 4 | 3 | 3 | 5 | 4 | **v0.1.3 expedited for batch mode**, enabled by default |
 | 36 | #8 | Series intelligence | **73** | 4 | 3 | 4 | 4 | 3 | v0.2.1 |
 | 37 | #36 | Additional metadata fields | **72** | 4 | 3 | 3 | 5 | 3 | v0.2.1 |
 | 38 | #49 | Offline/manual metadata editing | **72** | 4 | 3 | 3 | 5 | 3 | v0.2.2 |
@@ -80,7 +80,7 @@ A higher score means “more valuable to prioritize,” not “must be implement
 | 44 | #35 | Optional EPUB write-back | **66** | 3 | 5 | 3 | 3 | 1 | Later / experimental |
 | 45 | #39 | Language normalization improvements | **65** | 3 | 3 | 3 | 4 | 4 | v0.2.1 |
 | 46 | #4 | Cover chooser | **64** | 4 | 2 | 3 | 4 | 3 | v0.2.1 |
-| 47 | #45 | Configurable batch threshold presets | **63** | 3 | 3 | 2 | 4 | 5 | v0.2.0 |
+| 47 | #45 | Configurable batch threshold presets | **63** | 3 | 3 | 2 | 4 | 5 | **v0.1.3 expedited** — 95/90/80 presets |
 | 48 | #31 | Direct provider URL/ID display | **62** | 3 | 2 | 3 | 4 | 5 | v0.2.2 |
 | 49 | #34 | OPF import/export | **62** | 3 | 3 | 4 | 3 | 2 | v0.2.2 |
 | 50 | #21 | Provider priorities | **60** | 3 | 2 | 3 | 4 | 4 | v0.2.1 |
@@ -101,8 +101,13 @@ The following roadmap work was deliberately pulled forward because it is bounded
 - **#30 Credential safety (partial):** diagnostics have explicit and pattern-based redaction for configured tokens/keys/Amazon secrets and authorization/query-secret patterns.
 - **#10 Current vs proposed comparison (core):** the match preview now shows only the selected text fields that would actually change under the active write mode, with existing and proposed values where practical.
 - **#12 Undo (one-step core):** exact custom-metadata/custom-cover bytes are snapshotted before apply and can be restored for the current/context-selected book, including after a KOReader restart.
-- **#1 Refresh/provenance prerequisite:** the saved match record now contains provider ID, canonical identifiers, score/reasons, query, written fields, cover outcome, plugin version, and timestamp so later exact-record refresh has a stable base.
+- **#1 Refresh/provenance prerequisite:** the saved match record now contains provider ID, canonical identifiers, score/confidence/reasons, query, written fields, cover outcome, plugin version, and timestamp so later exact-record refresh has a stable base.
 - **#13 History prerequisite:** v0.1.3 retains a single prior state per book and bounds the overall undo set to 20 books; true multi-revision history remains deferred.
+- **#11 Per-book field selection:** **Choose fields for this book…** creates a temporary field/cover selection for a single Apply action without altering the saved global defaults.
+- **#43 Confidence classes:** ranked results now expose evidence-aware **Exact**, **Strong**, **Possible**, and **Weak** classes alongside the numeric score.
+- **#20 Provider status UI (core):** the Providers dialog shows lightweight non-network readiness state; Google exposes active cooldown, Amazon exposes token-cache readiness, and credential-free/missing states are visible where possible.
+- **#18 Skip already matched (batch core):** batch mode can skip files with existing Metadata Scraper provenance before making provider requests; this is enabled by default.
+- **#45 Batch threshold presets:** Strict 95%, Recommended 90%, and Permissive 80% presets are available while preserving 90% as the default.
 
 These are still **unreleased branch changes** and require the v0.1.3 real-device release gate.
 
@@ -114,12 +119,13 @@ Current development branch. The goal is to establish a safe, diagnosable baselin
 
 Primary themes:
 - central versioning and version-drift prevention;
-- provider connection diagnostics;
+- provider connection diagnostics and lightweight readiness/cooldown state;
 - automatic ISBN extraction and checksum validation;
 - ISBN-10/ISBN-13 canonical matching;
 - cross-provider result deduplication;
-- match reasons and conflict-aware confidence safeguards;
+- match reasons, conflict-aware safeguards, and confidence classes;
 - Current → Proposed change preview;
+- one-off per-book field/cover selection;
 - richer per-book provenance and Last match details;
 - persistent one-step undo of KOReader custom metadata/custom cover changes;
 - safer cover replacement and payload validation;
@@ -128,6 +134,7 @@ Primary themes:
 - malformed provider/result and KOReader write isolation;
 - sanitized in-memory diagnostics and support-file export;
 - SHA-256-verified future updater payloads;
+- safer batch controls: threshold presets and skip-already-matched behavior;
 - regression tests and Lua CI.
 
 Release tooling includes `scripts/generate_update_manifest.py` to generate or verify release payload hashes. The final release process must generate the manifest only after runtime files stop changing, then verify it before tagging.
@@ -140,8 +147,8 @@ Continue hardening that was not safely necessary for the first reliability relea
 
 Primary follow-up items:
 - #27 updater deletion/migration support;
-- #22 provider-specific rate controls;
-- #20 provider cooldown/status UI;
+- #22 provider-specific rate controls/pacing;
+- #20 richer persisted provider health/status history beyond the v0.1.3 readiness UI;
 - #30 richer credential masking/validation UX;
 - #29 settings backup/reset;
 - #28 stable/prerelease update channels;
@@ -152,7 +159,7 @@ Primary follow-up items:
 
 ### v0.2.0 — Full metadata lifecycle, review & refresh
 
-Build on the one-step lifecycle safety already expedited into v0.1.3.
+Build on the lifecycle and batch-safety work already expedited into v0.1.3.
 
 Key remaining items:
 - #6 exact-edition awareness;
@@ -160,15 +167,14 @@ Key remaining items:
 - #14 batch preview before writing;
 - #42 expand confidence safeguards to explicit edition/format evidence;
 - #10 richer field/source comparison beyond the v0.1.3 core preview;
-- #44 explain-score details;
+- #44 numeric/component score breakdown beyond the existing match-reason text;
 - #23 resumable batch operations;
 - #15 borderline-match review;
 - #13 bounded multi-revision metadata history beyond one-step undo;
-- #11 apply selected fields per book;
-- #18 skip already matched books;
 - #16 batch summary/export;
-- #45 batch threshold presets;
 - #17 optional recursive batch mode.
+
+Already pulled forward from this release family: #11 per-book field selection, #18 skip-already-matched batch behavior, and #45 threshold presets.
 
 ### v0.2.1 — Multi-source quality & normalization
 
@@ -182,7 +188,6 @@ Key ranked items:
 - #19 search/session cache;
 - #5 cover quality detection;
 - #37 description cleanup;
-- #43 confidence classes;
 - #8 series intelligence;
 - #36 additional metadata fields;
 - #38 genre normalization;
@@ -192,9 +197,11 @@ Key ranked items:
 - #4 cover chooser;
 - #21 provider priorities.
 
+Confidence classes (#43) were pulled forward into v0.1.3; later work may refine them with edition/format evidence rather than introducing a second classification system.
+
 ### v0.2.2 — File organization & interoperability
 
-Add safe file/folder operations only after metadata provenance and undo are mature.
+Add safe file/folder operations only after metadata provenance and undo are mature and have passed real-device testing.
 
 Key ranked items:
 - #51 safe file renaming and library organization;
