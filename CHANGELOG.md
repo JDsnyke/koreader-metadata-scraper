@@ -39,8 +39,8 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Undo restores the previous custom metadata and cover, then restores the previous Metadata Scraper provenance record.
 - Undo backup names are collision-checked and restore paths refuse to silently leave a competing current override behind.
 - One undo snapshot is retained per book, with the global undo-record set bounded to the 20 most recent books so cache/settings growth remains controlled.
-- Expanded per-book provenance to record provider/source ID, canonical ISBN, title/authors/series/language/date/publisher, score, confidence class, match reasons, search query, fields written, cover outcome, plugin version, and timestamp.
-- Added **Last match details** for the current/context-selected book so the recorded source, provider ID, score, confidence, ISBN, written fields, reasons, date, and plugin version can be inspected without re-searching.
+- Expanded per-book provenance to record provider/source ID, canonical ISBN, title/authors/series/language/date/publisher, format/binding/edition when known, score, confidence class, match reasons, search query, fields written, cover outcome, plugin version, and timestamp.
+- Added **Last match details** for the current/context-selected book so the recorded source, provider ID, score, confidence, ISBN, edition information, written fields, reasons, date, and plugin version can be inspected without re-searching.
 - Cover-only changes can also be undone; a failed cover-only operation does not replace a previously valid undo record.
 
 ### Batch workflow
@@ -48,8 +48,12 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Added batch confidence presets: **Strict (95%)**, **Recommended (90%)**, and **Permissive (80%)**.
 - The existing 90% behavior remains the default.
 - Added **Skip already matched in batch**, enabled by default. Files with existing Metadata Scraper provenance are skipped before provider queries are made, reducing unnecessary API calls and accidental repeat writes.
-- The batch confirmation dialog states when previously matched books will be skipped.
+- Reworked batch mode into a **two-phase discovery/apply workflow**. The discovery phase performs provider searches and ranking but makes no metadata or cover changes.
+- After discovery, the plugin summarizes **Ready to apply**, **Low/no match**, **Already matched**, and **Search failures** before any writes occur.
+- A second explicit **Apply** confirmation is required before the ready high-confidence matches are written. Cancelling after discovery leaves every book unchanged.
+- Final batch results separately report successful applies and apply failures.
 - Batch processing remains current-folder-only, non-recursive, and bounded by the existing batch file limit.
+- Full per-book interactive review of borderline matches remains deferred beyond v0.1.3.
 
 ### Hardcover
 
@@ -57,6 +61,7 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Retains compatibility with Hardcover's Typesense-backed search result shapes, including `hits[].document` and JSON-encoded results.
 - Added an authenticated account diagnostic using the `me` GraphQL query.
 - Added non-network readiness status based on whether a token is configured.
+- Uses format/binding/edition hints from search documents when Hardcover supplies them, without requiring those hints to exist for a match.
 
 ### Amazon Creators API
 
@@ -68,6 +73,7 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Improved Amazon authentication/API error text.
 - Added an OAuth diagnostic showing the active credential version.
 - Added readiness status that distinguishes missing credentials, configured/not-yet-tested credentials, and a currently reusable cached OAuth token.
+- Parses Creators API `ItemInfo.Classifications.Binding` and `ItemInfo.ContentInfo.Edition` values when returned and uses them as edition evidence for matching/provenance.
 
 ### Google Books
 
@@ -92,14 +98,19 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Results found by multiple providers are deduplicated by canonical ISBN where possible, with normalized title + author as a fallback.
 - Missing useful fields from duplicate provider results may be merged into the preferred result.
 - The UI shows when the same book was also found on other providers.
-- Match previews now show human-readable match reasons such as exact ISBN, exact title, author match, language, series, and year signals.
-- Added explicit **conflict safeguards** for contradictory ISBN, author, language, series, and publication-year evidence.
+- Match previews now show human-readable match reasons such as exact ISBN, exact title, author match, language, series, year, and format signals.
+- Added explicit **conflict safeguards** for contradictory ISBN, author, language, series, publication-year, and known edition-format evidence.
+- EPUB searches now carry an explicit `ebook` media kind. When a provider explicitly identifies a result as an audiobook or print edition, that mismatch is downgraded to manual-review confidence and cannot reach the automatic batch thresholds.
+- An explicitly identified audiobook candidate for an EPUB is capped at 35% even when title/author text is strong.
+- An explicitly identified print candidate for an EPUB is capped at 65%, requiring manual review.
+- Even an exact ISBN is downgraded when provider format evidence explicitly contradicts the EPUB media kind; unknown provider format remains neutral rather than being guessed.
 - A candidate carrying a valid ISBN that conflicts with the user's/query EPUB ISBN is capped far below the default automatic batch threshold even when title and author are exact.
-- Strong author, language, series, and year conflicts reduce confidence instead of being silently ignored.
-- Added evidence-aware confidence classes: **Exact**, **Strong**, **Possible**, and **Weak**. Exact ISBN matches are Exact; contradictory ISBNs are always Weak; strong confidence is only assigned when the score is high and hard-conflict evidence is absent.
+- Strong author, language, series, year, and format conflicts reduce confidence instead of being silently ignored.
+- Added comparison-only author normalization. Equivalent token order/punctuation forms such as `Dinniman, Matt` and `Matt Dinniman` compare consistently without rewriting the provider's stored/displayed author text.
+- Added evidence-aware confidence classes: **Exact**, **Strong**, **Possible**, and **Weak**. Exact ISBN matches are Exact only when no explicit hard edition conflict exists; contradictory identifiers/formats are Weak.
 - Confidence is shown in match results/previews and persisted in per-book provenance.
-- Exact ISBN remains authoritative when it matches.
-- Saved book-link provenance now records the Metadata Scraper plugin version.
+- Exact ISBN remains authoritative when it matches and no explicit edition-format contradiction is present.
+- Saved book-link provenance records the Metadata Scraper plugin version and known edition evidence.
 
 ### Testing and development
 
@@ -111,10 +122,14 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
   - ISBN-10/ISBN-13 canonicalization
   - cross-provider deduplication
   - malformed provider-result isolation
-  - ISBN/author/language/series conflict safeguards
+  - ISBN/author/language/series/year/format conflict safeguards
+  - comparison-only author normalization, including surname-first and multi-author strings
+  - ebook/print/audiobook edition classification and conflict caps
   - evidence-aware confidence classification
   - provider readiness/cooldown status
   - presence of per-book field selection and batch-safety UI controls
+  - two-phase batch discovery/apply wiring
+  - Amazon binding/edition extraction
   - Hardcover Bearer normalization
   - Hardcover Typesense result normalization
   - Amazon credential-version token endpoints and token caching
@@ -142,17 +157,18 @@ The v0.1.3 updater now expects **future target releases** to include a `sha256` 
 
 ### Still deferred beyond 0.1.3
 
-The following larger ideas remain outside this reliability branch for now:
+The following larger ideas remain outside this release:
 
 - multi-revision metadata history beyond the current one-step undo snapshot
 - direct `Refresh metadata` using a previously saved provider record
-- full batch preview / interactive review of borderline batch matches
-- richer per-book batch report
+- work-level vs edition-level provider identity beyond the v0.1.3 format/ISBN safeguards
+- per-book interactive review of borderline batch matches and richer per-book batch report/export
 - updater support for explicitly removed files/settings migrations
 - series/provider preference memory
 - persistent cross-restart diagnostic logging / direct clipboard export
 - provider-specific request pacing beyond existing provider cooldown handling
+- deeper semantic author-role normalization (editors/translators/narrators)
 - safe file renaming and library organization
-- audiobook metadata support
+- audiobook metadata management/support
 
-These should be evaluated separately after v0.1.3 has been tested on-device, although bounded hardening/lifecycle work may continue to be pulled forward where it reduces release risk without expanding destructive behavior.
+These should be evaluated separately after v0.1.3 has been exercised on-device. The v0.1.3 edition safeguards deliberately recognize known audiobook results only to avoid applying them to EPUBs; they do not constitute audiobook metadata support.
