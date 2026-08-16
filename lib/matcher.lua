@@ -21,12 +21,28 @@ local function reason_set(reasons)
     return out
 end
 
+local function media_kind(value)
+    if value == "ebook" or value == "print" or value == "audiobook" then return value end
+    return U.format_kind(value)
+end
+
+local function result_media_kind(r)
+    return media_kind(r.media_kind) or U.format_kind(r.format) or U.format_kind(r.binding) or U.format_kind(r.edition)
+end
+
+local function edition_conflict(query, r)
+    local qkind = media_kind(query.media_kind or query.format)
+    local rkind = result_media_kind(r)
+    if qkind and rkind and qkind ~= rkind then return qkind, rkind end
+    return qkind, rkind
+end
+
 function M.confidence(score, reasons)
     score = tonumber(score) or 0
     local set = reason_set(reasons)
 
-    if set["ISBN exact"] and score == 100 then return "Exact" end
-    if set["ISBN conflict"] then return "Weak" end
+    if set["ISBN exact"] and score == 100 and not set["format conflict"] then return "Exact" end
+    if set["ISBN conflict"] or set["format conflict"] then return "Weak" end
 
     local hard_conflict = set["author conflict"] or set["language conflict"] or set["series conflict"]
     if score >= 90 and not hard_conflict then return "Strong" end
@@ -41,8 +57,17 @@ function M.score(query, r)
     local reasons = {}
     local query_isbn = U.canonical_isbn(query.isbn)
     local result_isbn = canonical_result_isbn(r)
+    local qkind, rkind = edition_conflict(query, r)
+    local has_format_conflict = qkind and rkind and qkind ~= rkind
+
     if isbn_matches(query, r) then
         add_reason(reasons, "ISBN exact")
+        if has_format_conflict then
+            add_reason(reasons, "format conflict")
+            if qkind == "ebook" and rkind == "audiobook" then return 35, reasons end
+            return 65, reasons
+        end
+        if qkind and rkind and qkind == rkind then add_reason(reasons, "format match") end
         return 100, reasons
     end
 
@@ -66,17 +91,17 @@ function M.score(query, r)
         end
     end
 
-    local qa = U.normalize(query.author)
-    local ra = U.normalize(r.authors_text or U.join(r.authors, " "))
+    local qa = U.normalize_author(query.author)
+    local ra = U.normalize_author(r.authors_text or U.join(r.authors, " "))
     if qa ~= "" and ra ~= "" then
-        if qa == ra then
+        local similarity = U.author_similarity(qa, ra)
+        if similarity >= 0.999 then
             score = score + 23
             add_reason(reasons, "author exact")
-        elseif qa:find(ra, 1, true) or ra:find(qa, 1, true) then
+        elseif qa:find(ra, 1, true) or ra:find(qa, 1, true) or similarity >= 0.8 then
             score = score + 20
             add_reason(reasons, "author close")
         else
-            local similarity = U.token_similarity(qa, ra)
             score = score + math.floor(similarity * 20)
             if similarity >= 0.6 then
                 add_reason(reasons, "author similar")
@@ -131,6 +156,20 @@ function M.score(query, r)
         end
     end
 
+    if qkind and rkind then
+        if qkind == rkind then
+            score = score + 3
+            add_reason(reasons, "format match")
+        else
+            add_reason(reasons, "format conflict")
+            if qkind == "ebook" and rkind == "audiobook" then
+                score = math.min(math.max(0, score - 45), 35)
+            else
+                score = math.min(math.max(0, score - 25), 65)
+            end
+        end
+    end
+
     -- A contradictory ISBN is stronger evidence than fuzzy textual agreement.
     -- Keep the result visible for manual review, but never allow it near the
     -- default automatic batch threshold.
@@ -144,7 +183,7 @@ local function dedupe_key(r)
     if isbn then return "isbn:" .. isbn end
 
     local title = U.normalize(r.title)
-    local author = U.normalize(U.first(r.authors) or r.authors_text)
+    local author = U.normalize_author(U.first(r.authors) or r.authors_text)
     if title ~= "" then return "book:" .. title .. "|" .. author end
 
     return "source:" .. tostring(r.source or "") .. ":" .. tostring(r.id or r)
@@ -198,6 +237,7 @@ function M.rank(query, results, source_priority)
                 r.score = score
                 r.match_reasons = type(reasons) == "table" and reasons or {}
                 r.confidence = M.confidence(score, r.match_reasons)
+                r.media_kind = r.media_kind or result_media_kind(r)
                 table.insert(valid, r)
             end
         end
