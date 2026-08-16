@@ -170,6 +170,9 @@ function P.search(query, settings)
             for _, c in ipairs(contribs) do if c.name or c.Name then table.insert(authors, c.name or c.Name) end end
         end
         local content = ii.contentInfo or ii.ContentInfo or {}
+        local classifications = ii.classifications or ii.Classifications or {}
+        local binding = display_value(classifications.binding or classifications.Binding)
+        local edition = display_value(content.edition or content.Edition)
         local extids = ii.externalIds or ii.ExternalIds or {}
         local allids = {}
         local isbns = extids.isbns or extids.ISBNs or {}
@@ -194,6 +197,10 @@ function P.search(query, settings)
             language = U.language_code(first_lang),
             published_date = pubdate,
             isbn10 = isbn10, isbn13 = isbn13,
+            binding = binding,
+            format = binding,
+            edition = edition,
+            media_kind = U.format_kind(binding) or U.format_kind(edition),
             cover_url = large.url or large.URL,
             raw = item,
         })
