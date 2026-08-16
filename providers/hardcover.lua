@@ -95,6 +95,8 @@ query MetadataScraperSearch($q: String!) {
             local s = type(v) == "table" and (v.tag or v.name) or v
             if s then table.insert(tags, s) end
         end
+        local format = r.format or r.binding or r.edition_format or r.edition_type
+        local edition = r.edition or r.edition_name
         table.insert(out, {
             source = P.id, source_label = P.label,
             id = r.id or ids[i], title = r.title, subtitle = r.subtitle,
@@ -103,6 +105,8 @@ query MetadataScraperSearch($q: String!) {
             description = r.description, published_date = r.release_year,
             keywords = tags, keywords_text = U.join(tags, "\n", 12),
             isbn10 = isbn10, isbn13 = isbn13,
+            format = format, edition = edition,
+            media_kind = U.format_kind(format) or U.format_kind(edition),
             cover_url = (type(r.image) == "table" and r.image.url) or r.image_url,
             raw = r,
         })
