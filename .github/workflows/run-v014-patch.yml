@@ -1,0 +1,29 @@
+name: Run v0.1.4 patch helper
+
+on:
+  push:
+    branches:
+      - agent/v0.1.4-navigation-zenpm
+    paths:
+      - .github/workflows/run-v014-patch.yml
+
+jobs:
+  patch:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/v0.1.4-navigation-zenpm
+          fetch-depth: 0
+      - run: python3 scripts/apply_v014_patch.py
+      - run: python3 scripts/generate_update_manifest.py
+      - run: git diff --check
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm scripts/apply_v014_patch.py .github/workflows/run-v014-patch.yml
+          git add main.lua lib/version.lua update.json manifest.json README.md docs/zenpm.md CHANGELOG.md tests/run.lua tests/navigation.lua .github/workflows/lua-checks.yml
+          git commit -m "Start v0.1.4 navigation and ZenPM UX work"
+          git push origin HEAD:agent/v0.1.4-navigation-zenpm
