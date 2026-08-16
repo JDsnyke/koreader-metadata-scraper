@@ -45,12 +45,58 @@ check("batch discovery is a no-write phase with second apply gate", function()
     truthy(not data:find("Fetch and automatically apply the best match", 1, true), "legacy immediate-write batch prompt remains")
 end)
 
+check("batch plan freezes write settings used by Apply", function()
+    local data = read_file("main.lua")
+    truthy(data:find("replace_existing = self.settings.replace_existing", 1, true), "batch write mode is not frozen")
+    truthy(data:find("download_cover = self.settings.download_cover", 1, true), "batch cover preference is not frozen")
+    truthy(data:find("fields = U.copy(self.settings.fields)", 1, true), "batch field selection is not frozen")
+    truthy(data:find("entry.options", 1, true), "batch Apply does not use frozen options")
+end)
+
 check("provenance records edition evidence", function()
     local data = read_file("main.lua")
     truthy(data:find("format = r.format", 1, true))
     truthy(data:find("binding = r.binding", 1, true))
     truthy(data:find("edition = r.edition", 1, true))
     truthy(data:find("media_kind = r.media_kind", 1, true))
+end)
+
+check("merged provider edition evidence is re-scored", function()
+    package.loaded["lib/matcher"] = nil
+    local Matcher = require("lib/matcher")
+    local results = {
+        {
+            source = "primary",
+            source_label = "Primary",
+            id = "a",
+            title = "Example Book",
+            authors = { "Example Author" },
+            authors_text = "Example Author",
+            isbn13 = "9780306406157",
+        },
+        {
+            source = "secondary",
+            source_label = "Secondary",
+            id = "b",
+            title = "Example Book",
+            authors = { "Example Author" },
+            authors_text = "Example Author",
+            isbn13 = "9780306406157",
+            binding = "Paperback",
+            media_kind = "print",
+        },
+    }
+    Matcher.rank({
+        title = "Example Book",
+        author = "Example Author",
+        isbn = "9780306406157",
+        media_kind = "ebook",
+    }, results, { primary = 1, secondary = 2 })
+    eq(#results, 1)
+    eq(results[1].media_kind, "print")
+    eq(results[1].score, 65)
+    eq(results[1].confidence, "Weak")
+    truthy(table.concat(results[1].match_reasons or {}, ","):find("format conflict", 1, true) ~= nil)
 end)
 
 check("Amazon SearchItems binding becomes edition evidence", function()
