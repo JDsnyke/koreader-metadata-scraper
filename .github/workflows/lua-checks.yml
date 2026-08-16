@@ -29,6 +29,17 @@ jobs:
         run: |
           find . -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
 
+      - name: Build release ZIP
+        run: |
+          python3 scripts/build_release.py
+          rm -rf dist/extracted
+          mkdir -p dist/extracted
+          unzip -q dist/metadata_scraper_koreader_v0.1.3.zip -d dist/extracted
+          test -f dist/extracted/metadata_scraper.koplugin/main.lua
+          test ! -e dist/extracted/metadata_scraper.koplugin/metadata_scraper.koplugin
+          find dist/extracted/metadata_scraper.koplugin -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+          sha256sum -c dist/metadata_scraper_koreader_v0.1.3.zip.sha256
+
       - name: Run regression tests
         run: |
           lua5.1 tests/run.lua
@@ -38,3 +49,13 @@ jobs:
           lua5.1 tests/edition_batch.lua
           lua5.1 tests/updater_integrity.lua
           lua5.1 tests/lifecycle.lua
+
+      - name: Upload release candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: metadata-scraper-v0.1.3-${{ github.sha }}
+          path: |
+            dist/metadata_scraper_koreader_v0.1.3.zip
+            dist/metadata_scraper_koreader_v0.1.3.zip.sha256
+          if-no-files-found: error
+          retention-days: 14
