@@ -636,6 +636,7 @@ function MetadataScraper:showSearchForm(file, raw, props)
                     isbn = U.clean_isbn(f[3]),
                     language = props.language,
                     series = props.series,
+                    media_kind = "ebook",
                 }
                 if q.title == "" and q.author == "" and not q.isbn then
                     UIManager:show(InfoMessage:new{ text = _("Enter a title, author, or ISBN.") }); return
@@ -737,6 +738,7 @@ function MetadataScraper:showResults(file, raw, query, results)
             secondary = secondary .. " +" .. tostring(#r.also_sources)
         end
         if r.published_date then secondary = secondary .. " · " .. tostring(r.published_date) end
+        if r.media_kind then secondary = secondary .. " · " .. tostring(r.media_kind) end
         local text = tostring(r.title or _("Untitled"))
         if author ~= "" then text = text .. "\n" .. author end
         text = text .. "\n" .. tostring(r.score or 0) .. "% " .. confidence_label(r.confidence) .. " · " .. secondary
@@ -804,6 +806,10 @@ function MetadataScraper:recordLink(file, r, query, changes, cover_ok)
         language = r.language,
         published_date = r.published_date,
         publisher = r.publisher,
+        format = r.format,
+        binding = r.binding,
+        edition = r.edition,
+        media_kind = r.media_kind,
         score = r.score,
         confidence = r.confidence,
         match_reasons = U.copy(r.match_reasons),
@@ -814,6 +820,7 @@ function MetadataScraper:recordLink(file, r, query, changes, cover_ok)
             isbn = query and query.isbn or nil,
             language = query and query.language or nil,
             series = query and query.series or nil,
+            media_kind = query and query.media_kind or nil,
         },
         written_fields = written_fields,
         cover_applied = cover_ok == true,
@@ -844,6 +851,10 @@ function MetadataScraper:showLastMatchDetails(file)
     if link.series then
         table.insert(lines, _("Series") .. ": " .. tostring(link.series) .. (link.series_index and (" #" .. tostring(link.series_index)) or ""))
     end
+    if link.format or link.binding or link.media_kind then
+        table.insert(lines, _("Format") .. ": " .. tostring(link.format or link.binding or link.media_kind))
+    end
+    if link.edition then table.insert(lines, _("Edition") .. ": " .. tostring(link.edition)) end
     if link.written_fields and #link.written_fields > 0 then
         table.insert(lines, _("Fields written") .. ": " .. U.join(link.written_fields, ", "))
     end
@@ -1035,6 +1046,8 @@ function MetadataScraper:showPreview(file, raw, query, r)
     info(_("Published"), r.published_date)
     info(_("Language"), r.language)
     info("ISBN-13", r.isbn13); info("ISBN-10", r.isbn10)
+    info(_("Format"), r.format or r.binding or r.media_kind)
+    info(_("Edition"), r.edition)
     info(_("Source"), (r.source_label or r.source) .. " · " .. tostring(r.score or 0) .. "%")
     info(_("Confidence"), confidence_label(r.confidence))
     if r.also_sources and #r.also_sources > 0 then info(_("Also found on"), U.join(r.also_sources, ", ")) end
@@ -1096,24 +1109,65 @@ function MetadataScraper:confirmBatch(path)
     if #files == 0 then UIManager:show(InfoMessage:new{ text = _("No EPUB files found in this folder.") }); return end
     local count = math.min(#files, tonumber(self.settings.batch_limit) or 20)
     local skip_note = self.settings.batch_skip_matched
-        and _("\n\nBooks already matched by Metadata Scraper will be skipped.") or ""
+        and _("\n\nBooks already matched by Metadata Scraper will be skipped before provider searches.") or ""
     local box
     box = ConfirmBox:new{
-        text = string.format(_("Fetch and automatically apply the best match for %d EPUBs?\n\nOnly matches at or above %d%% will be applied. This scans this folder only, not subfolders."), count, tonumber(self.settings.batch_threshold) or 90) .. skip_note,
-        ok_text = _("Start"),
+        text = string.format(_("Discover metadata matches for %d EPUBs?\n\nThis first phase makes no metadata or cover changes. Matches at or above %d%% will be proposed for a second confirmation. This scans this folder only, not subfolders."), count, tonumber(self.settings.batch_threshold) or 90) .. skip_note,
+        ok_text = _("Discover"),
         ok_callback = function() UIManager:close(box); self:runBatch(files, count) end,
+    }
+    UIManager:show(box)
+end
+
+local function all_attempted_providers_failed(order, errors, counts)
+    local attempted, failed = 0, 0
+    for _, id in ipairs(order or {}) do
+        if counts[id] ~= nil or errors[id] ~= nil then
+            attempted = attempted + 1
+            if errors[id] and (tonumber(counts[id]) or 0) == 0 then failed = failed + 1 end
+        end
+    end
+    return attempted > 0 and failed == attempted
+end
+
+function MetadataScraper:showBatchPlan(plan)
+    if #plan.apply == 0 then
+        UIManager:show(InfoMessage:new{
+            text = string.format(_("Batch discovery complete.\n\nReady to apply: 0\nLow/no match: %d\nAlready matched: %d\nSearch failures: %d\n\nNo metadata was changed."),
+                plan.skipped, plan.already_matched, plan.failed),
+        })
+        return
+    end
+
+    local box
+    box = ConfirmBox:new{
+        text = string.format(_("Batch discovery complete.\n\nReady to apply: %d\nLow/no match: %d\nAlready matched: %d\nSearch failures: %d\n\nApply the %d proposed high-confidence matches now?"),
+            #plan.apply, plan.skipped, plan.already_matched, plan.failed, #plan.apply),
+        ok_text = _("Apply"),
+        ok_callback = function()
+            UIManager:close(box)
+            self:applyBatchPlan(plan)
+        end,
     }
     UIManager:show(box)
 end
 
 function MetadataScraper:runBatch(files, count)
     NetworkMgr:runWhenOnline(function()
-        local applied, skipped, failed = 0, 0, 0
         local threshold = tonumber(self.settings.batch_threshold) or 90
+        local plan = {
+            apply = {},
+            skipped = 0,
+            already_matched = 0,
+            failed = 0,
+            total = count,
+            threshold = threshold,
+        }
+
         for i = 1, count do
             local file = files[i]
             if self.settings.batch_skip_matched and self.settings.book_links[file] then
-                skipped = skipped + 1
+                plan.already_matched = plan.already_matched + 1
             else
                 local raw, props = self:getRawProps(file)
                 local isbn10, isbn13 = U.extract_isbns(props.identifiers or raw.identifiers)
@@ -1123,21 +1177,46 @@ function MetadataScraper:runBatch(files, count)
                     isbn = isbn13 or isbn10,
                     language = props.language,
                     series = props.series,
+                    media_kind = "ebook",
                 }
-                local busy = InfoMessage:new{ text = string.format(_("Metadata %d/%d\n%s"), i, count, q.title) }
+                local busy = InfoMessage:new{ text = string.format(_("Discovering %d/%d\n%s"), i, count, q.title) }
                 UIManager:show(busy); UIManager:forceRePaint()
-                local results = self:searchProviders(q)
+                local results, errors, counts = self:searchProviders(q)
                 UIManager:close(busy)
                 local best = results and results[1]
                 if best and (best.score or 0) >= threshold then
-                    if self:applyResult(file, raw, best, true, q) then applied = applied + 1 else failed = failed + 1 end
+                    table.insert(plan.apply, {
+                        file = file,
+                        raw = raw,
+                        query = q,
+                        result = best,
+                    })
+                elseif all_attempted_providers_failed(self:providerOrder(), errors or {}, counts or {}) then
+                    plan.failed = plan.failed + 1
                 else
-                    skipped = skipped + 1
+                    plan.skipped = plan.skipped + 1
                 end
             end
         end
+
+        self:showBatchPlan(plan)
+    end)
+end
+
+function MetadataScraper:applyBatchPlan(plan)
+    NetworkMgr:runWhenOnline(function()
+        local applied, failed = 0, 0
+        for i, entry in ipairs(plan.apply or {}) do
+            local title = (entry.result and entry.result.title) or (entry.query and entry.query.title) or entry.file
+            local busy = InfoMessage:new{ text = string.format(_("Applying %d/%d\n%s"), i, #plan.apply, tostring(title or "")) }
+            UIManager:show(busy); UIManager:forceRePaint()
+            local ok = self:applyResult(entry.file, entry.raw, entry.result, true, entry.query)
+            UIManager:close(busy)
+            if ok then applied = applied + 1 else failed = failed + 1 end
+        end
         UIManager:show(InfoMessage:new{
-            text = string.format(_("Batch complete.\nApplied: %d\nSkipped: %d\nFailed: %d"), applied, skipped, failed),
+            text = string.format(_("Batch complete.\nApplied: %d\nNot applied: %d\nAlready matched: %d\nSearch failures: %d\nApply failures: %d"),
+                applied, plan.skipped or 0, plan.already_matched or 0, plan.failed or 0, failed),
         })
     end)
 end
