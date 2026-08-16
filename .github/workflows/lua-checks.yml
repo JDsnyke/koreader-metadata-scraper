@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - "agent/**"
+      - "hotfix/**"
   pull_request:
 
 concurrency:
@@ -27,7 +28,9 @@ jobs:
         run: |
           python3 -m py_compile scripts/*.py
           python3 -m json.tool update.json >/dev/null
+          python3 -m json.tool manifest.json >/dev/null
           python3 scripts/lint_release.py
+          python3 scripts/lint_zenpm_manifest.py
           python3 scripts/generate_update_manifest.py --check
 
       - name: Syntax check Lua files
