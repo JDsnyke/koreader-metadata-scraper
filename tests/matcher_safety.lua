@@ -98,7 +98,11 @@ check("surname-first author compares as exact without rewriting display text", f
     })
     truthy(score >= 95, "equivalent surname-first author should retain strong score")
     truthy(contains(reasons, "author exact"))
-    truthy(U.normalize_author("Dinniman, Matt") == "matt dinniman")
+    truthy(U.normalize_author("Dinniman, Matt") == U.normalize_author("Matt Dinniman"))
+end)
+
+check("multiple-author comma string is not misclassified by surname heuristic", function()
+    truthy(U.normalize_author("Roald Dahl, Quentin Blake") == U.normalize_author("Quentin Blake; Roald Dahl"))
 end)
 
 check("strong series conflict prevents automatic acceptance", function()
