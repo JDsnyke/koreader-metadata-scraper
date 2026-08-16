@@ -1,57 +1,43 @@
 # Metadata Scraper for KOReader
 
-A Kindle-friendly KOReader plugin for fetching EPUB metadata and covers from **Hardcover**, **Amazon Creators API**, **Google Books**, and **Open Library**, then saving the selected values as KOReader-native custom metadata.
+A Kindle-friendly KOReader plugin for finding EPUB metadata and covers from **Hardcover**, **Amazon Creators API**, **Google Books**, and **Open Library**, then saving selected values as KOReader-native custom metadata.
 
-The plugin does **not** rewrite the EPUB file. Metadata and custom covers are stored through KOReader's own sidecar/settings mechanisms.
+**EPUB files are never rewritten by the normal plugin workflow.** Metadata, provenance, undo state, and custom covers are handled through KOReader settings/sidecars and the plugin cache.
 
-> **Release-channel note:** the built-in updater follows the repository's **latest published GitHub Release**, not the `main` branch. `main` can therefore contain a newer fix before that fix is available through **Check for updates**.
+> The built-in updater follows the repository's latest **published GitHub Release**, not arbitrary commits on `main`.
 
-## Contents
+## Highlights in v0.1.3
 
-- [Features](#features)
-- [Compatibility](#compatibility)
-- [Installation](#installation)
-- [Updating an existing installation manually](#updating-an-existing-installation-manually)
-- [Configuring credentials](#configuring-credentials)
-- [Provider setup](#provider-setup)
-- [Using the plugin](#using-the-plugin)
-- [Metadata and write behaviour](#metadata-and-write-behaviour)
-- [Batch mode](#batch-mode)
-- [Built-in update checker and installer](#built-in-update-checker-and-installer)
-- [Files, settings, backups and privacy](#files-settings-backups-and-privacy)
-- [Troubleshooting](#troubleshooting)
-- [Fix history](#fix-history)
-- [Release-maintainer checklist](#release-maintainer-checklist)
+v0.1.3 is a major reliability and metadata-lifecycle release. It adds:
 
-## Features
-
-- Search one or multiple metadata providers.
-- Search by title, author, or ISBN-10/ISBN-13.
-- Rank candidate matches and show the strongest results first.
-- Preview author, series, publication information, language, ISBN, source, score, and cover availability before applying a match.
-- Write KOReader-native custom title, authors, series, series index, language, keywords/genres, description, and cover.
-- Choose between replacing existing custom metadata and filling only missing fields.
-- Enable or disable individual metadata fields.
-- Conservative folder batch mode with a confidence threshold and file limit.
-- Zen UI-friendly file/folder context actions.
-- Built-in update checking with staged downloads, backup, and rollback.
-- Provider-specific error reporting so one unavailable provider does not have to stop the other enabled providers.
+- automatic ISBN detection from EPUB/KOReader identifiers;
+- ISBN-10/ISBN-13 checksum validation and canonical matching;
+- cross-provider duplicate collapsing;
+- conflict-aware scoring with **Exact / Strong / Possible / Weak** confidence classes;
+- explicit ebook-vs-print/audiobook safeguards when a provider supplies format evidence;
+- comparison-only author normalization for forms such as `Dinniman, Matt` vs `Matt Dinniman`;
+- **Current → Proposed** field comparison before writing;
+- **Choose fields for this book…** without changing global defaults;
+- exact one-step metadata/cover **Undo**;
+- richer per-book provenance and **Last match details**;
+- provider connection tests plus lightweight readiness/cooldown status;
+- sanitized support diagnostics with credential redaction;
+- safer cover validation and rollback;
+- cautious transient HTTP retries;
+- a two-phase **batch discovery → confirmation → apply** workflow;
+- batch threshold presets and skip-already-matched behavior;
+- SHA-256 verification for updater payloads;
+- automated Lua 5.1 regression checks.
 
 ## Compatibility
 
 ### KOReader
 
-The plugin targets **KOReader 2026.07 (Sailing Walrus)** and newer. It currently targets **EPUB** files.
+The plugin targets **KOReader 2026.07 (Sailing Walrus)** and newer and currently operates on **EPUB** files.
 
-KOReader 2026.07 includes the `kindlehf` build for modern Kindle firmware. KOReader's own release notes state that Kindle firmware **5.16.3 and later** requires the `kindlehf` package:
+For modern Kindle firmware **5.16.3+**, use KOReader's `kindlehf` package.
 
-https://github.com/koreader/koreader/releases
-
-### Modern Kindle / Coloursoft
-
-For a modern Kindle on firmware **5.16.3+**, use the KOReader **`kindlehf`** package.
-
-A known working setup for this plugin is:
+A confirmed working Hardcover-search setup is:
 
 - Kindle Coloursoft
 - Kindle firmware 5.19.5
@@ -59,455 +45,329 @@ A known working setup for this plugin is:
 - KOReader `kindlehf`
 - KOReader 2026.07
 
-KindleModding's current KOReader installation guide also specifies `kindlehf` for firmware 5.16.3+:
-
-https://kindlemodding.org/jailbreaking/post-jailbreak/koreader.html
-
-The plugin itself does not depend on Vera, KUAL, KPM, or a particular jailbreak technique once KOReader is already running. It runs inside KOReader.
+The plugin itself does not depend on a particular jailbreak once KOReader is already running.
 
 ### USB transfers on Kindle
 
-On Kindle, exit KOReader before trying to use normal USB mass storage. Current KindleModding guidance notes that KOReader itself does not provide USBMS mode; while KOReader is running, a connected USB cable may only charge the device.
+Exit KOReader before using normal USB mass storage. When KOReader is running, a USB cable may only charge the device depending on the Kindle environment.
 
 ## Installation
 
-### Prerequisites
+### Fresh installation
 
-Before installing the plugin:
+1. Download the release ZIP.
+2. Extract it on your computer.
+3. Exit KOReader completely.
+4. Connect the Kindle/device.
+5. Copy the complete `metadata_scraper.koplugin` folder to:
 
-1. Install and confirm that KOReader itself launches correctly.
-2. On firmware 5.16.3+, make sure you installed the `kindlehf` KOReader package.
-3. Exit KOReader before connecting the Kindle to a PC or Mac for file copying.
-4. Keep a backup of your KOReader settings if you already have an existing installation.
+   `koreader/plugins/metadata_scraper.koplugin/`
 
-### Fresh installation from a release ZIP
+6. Confirm the folder is **not nested twice**. This is wrong:
 
-1. Download the Metadata Scraper release ZIP.
-2. Extract it on your PC or Mac.
-3. Connect the Kindle by USB and open the visible Kindle storage.
-4. Open:
+   `koreader/plugins/metadata_scraper.koplugin/metadata_scraper.koplugin/main.lua`
 
-   ```text
-   koreader/plugins/
-   ```
+7. Safely eject the device and restart KOReader.
 
-5. Copy the complete plugin folder into that directory.
-6. The final layout must be:
-
-   ```text
-   koreader/
-   └── plugins/
-       └── metadata_scraper.koplugin/
-           ├── _meta.lua
-           ├── main.lua
-           ├── README.md
-           ├── update.json
-           ├── lib/
-           │   ├── http.lua
-           │   ├── matcher.lua
-           │   ├── updater.lua
-           │   ├── util.lua
-           │   └── writer.lua
-           └── providers/
-               ├── amazon.lua
-               ├── googlebooks.lua
-               ├── hardcover.lua
-               └── openlibrary.lua
-   ```
-
-7. Check that you did **not** accidentally create a nested folder such as:
-
-   ```text
-   metadata_scraper.koplugin/metadata_scraper.koplugin/main.lua
-   ```
-
-8. Safely eject the Kindle.
-9. Start or restart KOReader.
-10. If the plugin is not active, check KOReader's plugin-management menu and enable **Metadata Scraper**.
-
-### Internal Kindle paths
-
-Depending on the Kindle/KOReader environment, the same visible storage may internally appear as `/mnt/us`, `/mnt/base-us`, or another mounted path. Do not hard-code an internal path when copying from a PC/Mac; use the visible Kindle storage and place the folder under `koreader/plugins/`.
-
-The built-in updater discovers the plugin directory from the running `main.lua`, so it does not rely on a fixed `/mnt/us` or `/mnt/base-us` path.
-
-### Installing an unreleased fix from `main`
-
-If a fix has been merged into `main` but has not yet been published as a GitHub Release, the built-in updater will not see it yet.
-
-For a manual `main`-branch install:
-
-1. On GitHub, choose **Code → Download ZIP** for this repository.
-2. Extract the repository ZIP on your computer.
-3. Exit KOReader and connect the Kindle by USB.
-4. Copy the plugin runtime files from the repository into:
-
-   ```text
-   koreader/plugins/metadata_scraper.koplugin/
-   ```
-
-5. Merge the `lib/` and `providers/` directories and replace files with the newer copies.
-6. Restart KOReader.
-
-For most users, a proper release ZIP is preferable because it is a known versioned package.
-
-## Updating an existing installation manually
-
-### Normal manual update: copy over and replace
-
-For a normal upgrade, **do not delete the existing folder first**. Exit KOReader, copy the new `metadata_scraper.koplugin` folder over the existing folder, and choose **Merge/Replace** when your operating system asks what to do with files that already exist.
-
-This preserves the directory while replacing changed plugin files.
-
-Your provider credentials and plugin preferences are stored separately in:
+Expected runtime layout:
 
 ```text
-koreader/settings/metadata_scraper.lua
+metadata_scraper.koplugin/
+├── _meta.lua
+├── main.lua
+├── README.md
+├── update.json
+├── lib/
+│   ├── diagnostics.lua
+│   ├── http.lua
+│   ├── matcher.lua
+│   ├── updater.lua
+│   ├── util.lua
+│   ├── version.lua
+│   └── writer.lua
+└── providers/
+    ├── amazon.lua
+    ├── googlebooks.lua
+    ├── hardcover.lua
+    └── openlibrary.lua
 ```
 
-so replacing the plugin code does not normally remove your credentials.
+Internal storage may appear as `/mnt/us`, `/mnt/base-us`, or another path. The updater discovers the running plugin path dynamically and does not require a hard-coded Kindle mount point.
 
-Recommended manual update procedure:
+## Updating manually
 
-1. Exit KOReader completely.
-2. Connect the Kindle to the PC/Mac.
-3. Optional but recommended: back up:
+For a normal upgrade, **copy over and merge/replace** the existing plugin folder rather than deleting the settings file.
 
-   ```text
-   koreader/settings/metadata_scraper.lua
-   ```
+1. Exit KOReader.
+2. Optional but recommended: back up `koreader/settings/metadata_scraper.lua`.
+3. Copy the new `metadata_scraper.koplugin` over the existing plugin folder.
+4. Merge/replace changed runtime files.
+5. Restart KOReader fully.
 
-4. Copy the new:
+Credentials and preferences are stored separately in:
 
-   ```text
-   metadata_scraper.koplugin/
-   ```
+`koreader/settings/metadata_scraper.lua`
 
-   over:
+Do not delete that file unless you intentionally want to reset the plugin configuration.
 
-   ```text
-   koreader/plugins/metadata_scraper.koplugin/
-   ```
+A clean plugin-folder replacement can be useful after a corrupt/incomplete install, but preserve the settings file.
 
-5. Choose **Merge** and/or **Replace** for existing files.
-6. Safely eject the Kindle.
-7. Restart KOReader fully so all Lua modules are reloaded.
+## Opening Metadata Scraper
 
-### When a clean replacement is appropriate
+### Stock KOReader
 
-A clean replacement can be useful when:
+Open **Tools → Metadata Scraper**.
 
-- an earlier copy was incomplete or corrupted;
-- the folder has old files that are no longer part of the plugin;
-- the folder layout is wrong;
-- troubleshooting indicates that stale plugin files are being loaded.
+### Zen UI
 
-In that situation, delete only:
+Long-press/select an EPUB or folder and choose **Metadata** from the context actions where supported.
 
-```text
-koreader/plugins/metadata_scraper.koplugin/
-```
+For one EPUB, the common workflow is:
 
-then copy in a fresh plugin folder.
+1. **Fetch metadata**.
+2. Review/edit Title, Author, and ISBN search fields.
+3. Search one provider or all enabled providers.
+4. Select a candidate.
+5. Review score, confidence, reasons, edition information, and Current → Proposed changes.
+6. Use normal **Apply**, or **Choose fields for this book…** for a one-off field selection.
+7. Use **Undo last metadata update** if the result is not what you wanted.
 
-Do **not** delete this file unless you intentionally want to reset the plugin configuration:
+## Provider configuration
 
-```text
-koreader/settings/metadata_scraper.lua
-```
+Open **Metadata Scraper → Provider accounts**.
 
-### Manual single-file hotfix
+Available configuration includes:
 
-If a fix is explicitly limited to one file, that individual file can be replaced instead of copying the whole plugin. For example, a Hardcover-only provider hotfix can be installed by replacing:
-
-```text
-koreader/plugins/metadata_scraper.koplugin/providers/hardcover.lua
-```
-
-A full versioned plugin update is still preferred when available because several files may need to stay version-synchronised, especially `_meta.lua`, `lib/updater.lua`, `update.json`, and provider modules.
-
-Always restart KOReader after replacing Lua files.
-
-## Configuring credentials
-
-There are two supported practical ways to configure provider credentials.
-
-### Option 1: configure on the Kindle
-
-Open:
-
-**Tools → Metadata Scraper → Provider accounts**
-
-Available account/configuration entries include:
-
+- **Test provider connections…**
+- **Save support diagnostics…**
 - **Hardcover API token…**
 - **Amazon Creators API…**
 - **Amazon marketplace**
 - **Amazon search index**
 - **Google Books API key…**
 
-Saving valid credential fields through the UI automatically enables Hardcover, Google Books, or Amazon as appropriate.
+### Provider defaults
 
-### Option 2: paste long credentials from a PC or Mac
+- **Open Library** — enabled by default; no credentials required.
+- **Google Books** — requires your own Google Books API key for normal plugin use.
+- **Hardcover** — requires a Hardcover API token.
+- **Amazon** — requires Creators API Credential ID, Credential secret, Partner Tag, and preferably the credential version.
 
-This is much easier for long API keys and tokens.
+## Editing credentials from a computer
 
-1. Open KOReader once with Metadata Scraper installed so its settings file can be created.
-2. Exit KOReader completely.
-3. Connect the Kindle to the PC/Mac.
-4. Back up:
+Long credentials can be easier to paste into:
 
-   ```text
-   koreader/settings/metadata_scraper.lua
-   ```
+`koreader/settings/metadata_scraper.lua`
 
-5. Open the file in a plain-text editor such as VS Code, BBEdit, Sublime Text, Notepad++, or another editor that preserves plain UTF-8 text.
-6. Locate the existing settings inside the `config` table and edit the quoted values.
+Exit KOReader first, back up the file, then edit the existing generated configuration rather than replacing the whole settings structure.
 
-The important setting names are:
+Relevant setting keys include:
 
 ```text
 hardcover_token
 google_api_key
 amazon_client_id
 amazon_client_secret
+amazon_credential_version
 amazon_partner_tag
 amazon_marketplace
 amazon_search_index
 enabled
 source_scope
+batch_threshold
+batch_skip_matched
+auto_update_check
 ```
 
-The exact formatting generated by KOReader's Lua settings serializer can vary. A simplified example looks like this:
+Keep valid Lua quoting/commas and restart KOReader after editing.
 
-```lua
-["config"] = {
-    ["hardcover_token"] = "YOUR_HARDCOVER_TOKEN",
-    ["google_api_key"] = "YOUR_GOOGLE_BOOKS_KEY",
-    ["amazon_client_id"] = "YOUR_AMAZON_CREDENTIAL_ID",
-    ["amazon_client_secret"] = "YOUR_AMAZON_CREDENTIAL_SECRET",
-    ["amazon_partner_tag"] = "YOUR_PARTNER_TAG",
-    ["amazon_marketplace"] = "www.amazon.com.au",
-    ["amazon_search_index"] = "Books",
-    ["source_scope"] = "all",
-    ["enabled"] = {
-        ["hardcover"] = true,
-        ["amazon"] = false,
-        ["google"] = true,
-        ["openlibrary"] = true,
-    },
-}
-```
+## Open Library
 
-Treat that as an illustration. **Edit the values in the existing generated file rather than replacing the whole file with the example.**
+Open Library requires no API credentials and is useful for verifying basic network/search/write behavior before configuring authenticated providers.
 
-Important points when editing manually:
+Official API documentation: https://openlibrary.org/developers/api
 
-- Keep the surrounding quotes and commas valid Lua syntax.
-- Use normal straight quotation marks, not smart/curly quotes.
-- Do not add line breaks inside a token or key.
-- If you insert credentials manually, also enable the provider under the `enabled` table or enable it afterward from **Metadata Scraper → Providers**.
-- Exit KOReader before editing so it does not later overwrite your manual changes with an older in-memory copy.
-- Restart KOReader after saving the edited settings file.
+## Hardcover
 
-## Provider setup
+Hardcover requires an API token.
 
-### Open Library
+Official API documentation: https://docs.hardcover.app/
 
-Open Library requires no API credentials and is enabled by default.
+Configure it under **Hardcover API token…**.
 
-It is the simplest provider for confirming that the plugin, network connection, result UI, and metadata writing are functioning before configuring the authenticated providers.
+### Authorization
 
-### Hardcover
+The API request must use:
 
-Hardcover requires an API token from your Hardcover account settings.
+`Authorization: Bearer YOUR_TOKEN`
 
-Official API documentation:
+The plugin accepts either a raw token or an already-prefixed `Bearer ...` value and normalizes it so `Bearer Bearer ...` is not sent.
 
-https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/api/Getting-Started.mdx
+### Search-response compatibility
 
-Configure it through:
+Hardcover search has returned Typesense-backed structures in multiple shapes. v0.1.3 handles:
 
-**Metadata Scraper → Provider accounts → Hardcover API token…**
+- flat result arrays;
+- `hits[].document` responses;
+- arrays of hit objects;
+- JSON-encoded versions of those structures.
 
-#### Authorization format
+This fixes the case where authentication worked but searches such as **Dungeon Crawler Carl** incorrectly appeared as **No matches found**.
 
-Current Hardcover behaviour requires an HTTP header in this form:
+When Hardcover search documents include usable format/edition hints, v0.1.3 can use those as matching evidence. Their absence is treated as unknown/neutral rather than as an error.
 
-```text
-Authorization: Bearer YOUR_TOKEN
-```
+## Google Books
 
-The current plugin accepts either:
+The plugin uses the public Google Books Volumes API with a user-supplied API key.
 
-```text
-YOUR_TOKEN
-```
+Official documentation: https://developers.google.com/books/docs/v1/using
 
-or:
+Typical setup:
 
-```text
-Bearer YOUR_TOKEN
-```
+1. Create/select a Google Cloud project.
+2. Enable the Books API.
+3. Create an API key.
+4. Restrict it to the Books API where practical.
+5. Save it under **Google Books API key…**.
 
-If a raw token is stored, the plugin adds `Bearer ` automatically. If the stored value already starts with `Bearer `, it is preserved so the plugin does not send `Bearer Bearer ...`.
+### Rate limits
 
-This mirrors the credential-normalisation behaviour used by Hardcover's current official GraphQL Explorer code.
+v0.1.3:
 
-#### Testing the Hardcover token on a PC or Mac
+- recognizes HTTP 429 and quota-related 403 responses;
+- honors numeric `Retry-After` where supplied;
+- otherwise applies bounded cooldown/backoff;
+- exposes active cooldown in provider readiness status;
+- lets other enabled providers continue while Google is cooling down.
 
-You can test a token independently of KOReader:
+The generic HTTP layer does **not** blindly override Google's provider-specific 429 handling.
 
-```bash
-curl -sS 'https://api.hardcover.app/v1/graphql' \
-  -H 'Content-Type: application/json' \
-  -H 'Authorization: Bearer YOUR_TOKEN' \
-  -H 'User-Agent: KOReader-Metadata-Scraper-test' \
-  --data '{"query":"query { me { id username } }"}'
-```
+## Amazon Creators API
 
-A successful response should contain your Hardcover user information under `data.me`.
-
-#### Hardcover search behaviour
-
-Hardcover's search endpoint is backed by Typesense. Current plugin versions normalise several response forms:
-
-- a flat array of book documents;
-- a Typesense response object containing `hits[].document`;
-- an array of hit objects;
-- JSON-encoded versions of those shapes.
-
-This compatibility layer was added after valid searches such as **Dungeon Crawler Carl** could authenticate correctly but still appear as **No matches found** when the response was wrapped in the Typesense result structure.
-
-If Hardcover returns search IDs but no readable documents, the plugin now reports a diagnostic error instead of silently treating the response as an ordinary zero-result search.
-
-#### Hardcover API notes
-
-Hardcover describes its API as beta and currently documents a rate limit of 60 requests per minute. API behaviour can therefore change and may occasionally require provider updates.
-
-### Google Books
-
-The plugin uses the public Google Books volumes API.
-
-Google's official documentation states that public API requests should identify the application with an API key or OAuth token. This plugin uses an **API key** for public book searches:
-
-https://developers.google.com/books/docs/v1/using
-
-#### Create a Google Books API key
-
-1. Open Google Cloud Console.
-2. Create or select a project.
-3. Enable the **Books API** for that project if required.
-4. Open **APIs & Services → Credentials**.
-5. Choose **Create credentials → API key**.
-6. For better security, restrict the key to the Books API where practical.
-7. Save it in:
-
-   **Metadata Scraper → Provider accounts → Google Books API key…**
-
-Saving a non-empty key through the plugin UI enables Google Books automatically.
-
-#### HTTP 429 / quota handling
-
-Older plugin behaviour could repeatedly surface only `HTTP 429`. Current behaviour is more defensive:
-
-- Google Books is not enabled by default without a configured project API key.
-- The plugin exposes Google's returned API error message where possible.
-- `Retry-After` is respected when Google sends it.
-- Otherwise a bounded exponential cooldown is applied for quota/rate-limit responses.
-- Other enabled providers can continue returning results while Google Books is cooling down.
-
-If 429 errors persist even with your own key, check the Google Cloud project, Books API enablement, key restrictions, and the quota/usage information associated with that key.
-
-### Amazon Creators API
-
-Amazon support uses the official **Creators API**. It does **not** scrape Amazon HTML pages.
+Amazon support uses the official **Creators API** and does **not** scrape Amazon HTML pages.
 
 Official documentation:
 
-https://affiliate-program.amazon.com/creatorsapi/docs/en-us/get-started/using-curl
-
-SearchItems reference:
-
-https://affiliate-program.amazon.com/creatorsapi/docs/en-us/api-reference/operations/search-items
+- Getting started: https://affiliate-program.amazon.com/creatorsapi/docs/en-us/get-started/using-curl
+- SearchItems: https://affiliate-program.amazon.com/creatorsapi/docs/en-us/api-reference/operations/search-items
 
 Configure:
 
 - Credential ID
 - Credential secret
+- Credential version (`3.1`, `3.2`, or `3.3`)
 - Partner Tag
 - Marketplace
 - Search index (`Books` or `KindleStore`)
 
-The plugin obtains an OAuth 2.0 access token and calls Amazon's `SearchItems` operation.
+### Credential version vs marketplace
 
-Amazon's current Creators API documentation groups Australia in the Far East authentication region, whose token endpoint is `api.amazon.co.jp/auth/o2/token`. The plugin handles the regional authentication endpoint based on the selected marketplace.
+These are separate concepts:
 
-The default marketplace is:
+- **Credential version** chooses the OAuth token endpoint associated with that credential.
+- **Marketplace** chooses the Amazon catalog being searched.
+
+v0.1.3 token endpoints are:
 
 ```text
-www.amazon.com.au
+3.1 → https://api.amazon.com/auth/o2/token
+3.2 → https://api.amazon.co.uk/auth/o2/token
+3.3 → https://api.amazon.co.jp/auth/o2/token
 ```
 
-Currently selectable marketplaces in the plugin are Australia, United States, United Kingdom, Canada, Germany, France, Italy, Spain, India, Japan, Singapore, and the Netherlands.
+For compatibility with older settings, the plugin can still infer a credential version when the field is blank. For a new/current configuration, save the actual version shown for the Creators API credential.
 
-A Partner Tag needs to be valid for the marketplace being queried. Creators API eligibility and access are controlled by Amazon and cannot be granted by this plugin.
+The OAuth access token is cached by credential identity/endpoint until near expiry. Changing only marketplace can reuse the valid token. A cached token rejected with HTTP 401 is cleared and refreshed once.
 
-## Using the plugin
+### Edition evidence
 
-### Stock KOReader
+The SearchItems request includes ItemInfo classification/content resources. When Amazon returns values such as Binding or Edition, v0.1.3 records them and can classify clearly identified results such as Kindle/ebook, Paperback/Hardcover/print, or audiobook.
 
-Open:
+This is **not audiobook support**. It is a safety feature that prevents a known audiobook/print result from being automatically applied to an EPUB.
 
-**Tools → Metadata Scraper**
+## Search and matching
 
-Main actions include:
+### Automatic ISBN detection
 
-- **Fetch metadata for current book** — available when the currently open document is an EPUB.
-- **Choose EPUB…** — browse for an EPUB from the file manager.
-- **Batch folder…** — process EPUBs in a selected folder.
-- **Search source** — choose all enabled providers or one specific provider.
-- **Providers** — enable/disable providers.
-- **Provider accounts** — configure credentials and Amazon options.
-- **Metadata fields** — choose which values to write.
-- **Replace existing metadata** — toggle replacement versus fill-missing behaviour.
-- **Check for updates…** — manually query the latest published release.
-- **Automatic update checks** — enable/disable the daily passive check.
+Where KOReader exposes EPUB identifiers, the plugin looks for valid ISBN-10/ISBN-13 values and pre-fills the ISBN search field.
 
-### Zen UI
+ISBN candidates are checksum-validated. ISBN-10 is converted to its canonical ISBN-13 equivalent for comparison/deduplication.
 
-The plugin uses KOReader's native UI components and adds Zen-compatible context actions rather than maintaining an unrelated visual toolkit.
+### Ranking evidence
 
-With current Zen UI integration:
+The matcher can use:
 
-- long-press an EPUB and use the **Metadata** action to fetch metadata;
-- long-press a folder and use the **Metadata** action to start the bounded folder workflow.
+- exact ISBN;
+- title similarity;
+- author similarity;
+- language;
+- series;
+- publication year;
+- known media/edition format.
 
-The plugin listens for `ZenUIReady` and reinstalls its file-manager context hook when required.
+A candidate can also receive explicit conflict reasons.
 
-### Searching one book
+### Confidence classes
 
-The search form is prefilled from KOReader's current effective metadata where available:
+Results show both the numeric score and a class:
 
-- Title
-- Author
-- Language
+- **Exact** — decisive evidence such as exact ISBN with no explicit hard edition conflict.
+- **Strong** — high-confidence text/metadata evidence with no hard conflict.
+- **Possible** — useful but requires more judgment.
+- **Weak** — insufficient or contradictory evidence.
 
-An ISBN field is available for manual entry.
+### Edition safeguards
 
-You can search using title, author, ISBN, or a combination. ISBN is particularly useful when you need the correct edition.
+Every EPUB query is identified internally as an `ebook` search target.
 
-The plugin ranks returned candidates and displays up to six of the best matches. The result screen includes the source and match score. You can open a candidate preview, go back, or refine the search.
+If a provider explicitly identifies a candidate as:
 
-### Provider selection behaviour
+- **audiobook** — it is capped at 35% for an EPUB;
+- **print** (for example Paperback/Hardcover) — it is capped at 65% for an EPUB.
 
-When **Search source** is set to **All enabled sources**, only providers enabled under **Providers** are queried.
+These candidates remain visible for manual inspection but cannot cross the 80/90/95 automatic batch thresholds.
 
-If you explicitly select one provider as the search source, the plugin attempts that provider directly even if its normal enabled toggle is off. This is useful for testing a provider, but an unconfigured credentialed provider will then return its configuration/authentication error.
+If provider format is unknown, it is neutral. The plugin does not invent a format conflict from missing data.
 
-## Metadata and write behaviour
+### Author normalization
 
-KOReader 2026.07 custom metadata supports the following fields used by this plugin:
+Author normalization is for **comparison only**. It does not rewrite provider/displayed author names.
+
+Equivalent punctuation/order token forms such as:
+
+`Matt Dinniman`
+
+and
+
+`Dinniman, Matt`
+
+can compare consistently while genuinely different author tokens still reduce confidence.
+
+### Cross-provider deduplication
+
+Results are collapsed primarily by canonical ISBN and secondarily by normalized title + author. A preferred result can be supplemented with missing fields from a duplicate source, and the UI indicates when the book was also found elsewhere.
+
+## Match preview and Apply
+
+The preview can show:
+
+- author;
+- series/index;
+- publication date;
+- language;
+- ISBN-10/ISBN-13;
+- provider/source;
+- format/edition when available;
+- score and confidence;
+- match/conflict reasons;
+- cover availability;
+- **Current → Proposed** text-field changes.
+
+Long descriptions are summarized as add/replace operations rather than filling the e-ink screen with the whole description.
+
+### Global metadata fields
+
+Global toggles exist for:
 
 - Title
 - Authors
@@ -516,265 +376,286 @@ KOReader 2026.07 custom metadata supports the following fields used by this plug
 - Language
 - Keywords / genres
 - Description
-- Custom cover
+- Cover
 
-Publisher, publication date, ISBN, and provider IDs can be shown during matching/preview but are not forced into unsupported KOReader custom metadata properties.
+### One-off per-book field selection
 
-The selected provider ID and available ISBN values are retained in the plugin's own settings under its per-book link data for future use.
+Choose **Choose fields for this book…** from the preview to temporarily select fields for that single Apply operation.
 
-### Write modes
+Those temporary choices do **not** change the global defaults.
 
-**Replace existing metadata** enabled:
+## Write modes
 
-- selected plugin fields can replace existing KOReader custom values.
+### Replace existing metadata
 
-**Replace existing metadata** disabled:
+Selected fields can replace existing KOReader custom metadata.
 
-- the plugin fills missing custom values without intentionally replacing existing populated values.
+### Fill missing only
 
-### Field selection
+Existing populated custom values remain untouched and only missing selected fields are filled.
 
-Under **Metadata fields**, each supported field can be independently enabled or disabled. Cover downloading can also be toggled independently.
+The plugin does not rewrite the EPUB container in either mode.
 
-### Covers
+## Undo and provenance
 
-When a selected result has a cover and **Cover** is enabled, the image is downloaded to a temporary cache file and then passed to KOReader's native custom-cover mechanism.
+Before a successful metadata/cover mutation, the plugin snapshots the exact existing KOReader custom metadata file and custom-cover bytes.
 
-A cover-download failure does not necessarily mean metadata writing failed. The plugin can report **Metadata saved, but the cover could not be downloaded** when the text metadata was successfully written.
+If the snapshot cannot be created safely, the mutation is refused.
+
+### Undo
+
+**Undo last metadata update** restores the state immediately before the most recent Metadata Scraper apply for that book.
+
+- one undo point is retained per book;
+- records are bounded to the 20 most recently updated books;
+- undo survives a KOReader restart because the record is persisted in plugin settings;
+- if no custom override existed before, Undo removes the newly-created override rather than creating a synthetic empty one.
+
+### Last match details
+
+Per-book provenance can include:
+
+- provider/source and provider ID;
+- ISBN/canonical identifier;
+- title/authors/series;
+- language/date/publisher;
+- known format/binding/edition;
+- score/confidence/reasons;
+- original search query;
+- fields written;
+- cover outcome/source;
+- plugin version and timestamp.
+
+This groundwork is intended to support exact-record refresh in a future release.
 
 ## Batch mode
 
-Batch mode is deliberately conservative to reduce accidental mismatches and excessive API traffic.
-
-Defaults:
+Batch mode is intentionally conservative:
 
 - current folder only;
 - non-recursive;
-- maximum 20 EPUB files per run;
-- automatic application only when the best candidate score is at least 90%.
+- maximum 20 EPUBs per run by default;
+- default threshold **Recommended 90%**;
+- optional **Strict 95%** and **Permissive 80%** presets;
+- **Skip already matched in batch** enabled by default.
 
-For each EPUB, the plugin reads the existing title/author/language metadata, searches the selected providers, ranks matches, and applies only a candidate meeting the configured threshold.
+### Two-phase safety workflow
 
-At the end of the run it reports:
+v0.1.3 does **not** immediately write while it is discovering matches.
 
-- Applied
-- Skipped
-- Failed
+1. Choose **Batch folder…**.
+2. Confirm **Discover**.
+3. The plugin searches/ranks up to the configured limit but performs **no metadata or cover writes**.
+4. It summarizes:
+   - Ready to apply
+   - Low/no match
+   - Already matched
+   - Search failures
+5. If there are ready matches, a second explicit **Apply** confirmation is shown.
+6. Cancelling the second confirmation leaves every book unchanged.
+7. Only after the second confirmation are the ready matches applied.
 
-A skipped file normally means the plugin did not find a candidate above the automatic confidence threshold. It is safer to search that book manually than to lower the threshold aggressively.
+A later release may add row-by-row borderline review and richer batch reports. v0.1.3 deliberately keeps that additional complexity out of the release.
 
-## Built-in update checker and installer
+## Covers
 
-### Manual check
+Downloaded cover payloads are checked before an existing custom cover is touched.
 
-Open:
+The plugin currently accepts plausible **JPEG, PNG, or WebP** signatures and rejects tiny/non-image/error payloads where detected.
 
-**Metadata Scraper → Check for updates…**
+If KOReader fails while replacing the custom cover, the previous custom cover is restored where possible.
 
-The plugin queries:
+## HTTP resilience
+
+For idempotent GET/HEAD operations and downloads, the shared HTTP layer can retry once after:
+
+- a transient network failure;
+- HTTP 502;
+- HTTP 503;
+- HTTP 504.
+
+It does not generically retry ordinary POST requests, authentication failures, or HTTP 429. Provider-specific handling remains authoritative.
+
+## Provider diagnostics
+
+### Test provider connections
+
+**Provider accounts → Test provider connections…** checks each provider and reports a useful result without requiring a book search.
+
+### Readiness/status UI
+
+The Providers dialog can show lightweight non-network state such as:
+
+- token/key/credentials missing;
+- configured but not yet tested;
+- Open Library ready;
+- Amazon token cached;
+- Google cooling down for approximately N seconds.
+
+Opening the dialog does not intentionally perform a new network test.
+
+## Sanitized support diagnostics
+
+Choose **Save support diagnostics…** to write a support file under the Metadata Scraper cache directory.
+
+The diagnostic path is intended to include useful plugin/provider state and recent sanitized errors while redacting:
+
+- Hardcover token;
+- Google API key;
+- Amazon Credential ID;
+- Amazon Credential secret;
+- Amazon Partner Tag;
+- Bearer authorization values;
+- secret query parameters.
+
+URLs logged by the HTTP layer omit query values.
+
+Do not intentionally paste credentials into GitHub issues even though the support bundle is designed to redact them.
+
+## Built-in updater
+
+The updater checks:
+
+`https://api.github.com/repos/JDsnyke/koreader-metadata-scraper/releases/latest`
+
+It therefore follows the latest **published Release**.
+
+The updater:
+
+1. reads the target release/tag;
+2. fetches the tagged `update.json`;
+3. validates release/manifest version and safe paths;
+4. downloads runtime files to staging;
+5. verifies required SHA-256 payload hashes;
+6. verifies the staged files again immediately before installation;
+7. backs up current files;
+8. installs the staged files;
+9. rolls back if installation fails.
+
+Restart KOReader after installing an update so new Lua modules are loaded.
+
+Automatic checks run at most once every 24 hours and do not intentionally turn Wi-Fi on merely to check.
+
+## Updater integrity manifest
+
+v0.1.3 introduces a `sha256` map in `update.json` for release payload files. `update.json` itself is the control document and is not self-hashed.
+
+A target release with a missing/malformed/mismatched required digest is rejected before installed plugin files are modified.
+
+Maintainers generate the final map from a frozen release tree with:
 
 ```text
-https://api.github.com/repos/JDsnyke/koreader-metadata-scraper/releases/latest
+python3 scripts/generate_update_manifest.py
+python3 scripts/generate_update_manifest.py --check
 ```
 
-It compares the latest published release tag against its built-in current version.
+Do not hand-edit release hashes.
 
-### Automatic checks
+## Files and privacy
 
-Automatic update checks are enabled by default.
+### Plugin runtime
 
-They are intentionally limited:
+`koreader/plugins/metadata_scraper.koplugin/`
 
-- at most once every 24 hours;
-- they do not switch Wi-Fi on merely to perform the automatic check;
-- if networking is already connected, the plugin can silently check the latest release;
-- an available update is presented to the user rather than being installed without confirmation.
+### Settings
 
-### What the updater downloads
+`koreader/settings/metadata_scraper.lua`
 
-The updater does not depend on a Kindle `unzip` binary.
+Credentials stored there are local configuration values and are **not encrypted by this plugin**.
 
-For a release such as `v0.1.3`, it downloads the tagged:
+### Plugin cache
 
-```text
-update.json
-```
+Metadata Scraper uses KOReader's data/cache area for temporary covers, updater staging/backups, support diagnostics, and undo backups.
 
-and verifies that the manifest version matches the GitHub release version.
+### Network requests
 
-The manifest contains the exact plugin file list. The updater then:
+Search terms and provider requests necessarily leave the device when an online provider is used. Cover URLs are requested when a cover is applied.
 
-1. downloads every listed file to a staging directory;
-2. validates that manifest paths are safe relative paths;
-3. backs up existing files that will be replaced;
-4. replaces files only after the staging downloads have completed;
-5. rolls back files already changed if installation fails part-way through;
-6. asks the user to restart KOReader after a successful installation.
-
-### Release versus `main`
-
-**Check for updates does not install arbitrary commits from `main`.**
-
-This is intentional. A fix becomes visible to the built-in updater only after a new GitHub Release is published with:
-
-- a `vX.Y.Z` tag;
-- a matching version in `update.json`;
-- the plugin files present at that tag.
-
-Therefore, if GitHub `main` contains a documented fix but **Check for updates** says you are current, first compare the latest published Release with the repository history. A manual update may be required until that release is published.
-
-### Manual rollback
-
-If a new plugin version causes trouble:
-
-1. Exit KOReader.
-2. Back up the current `metadata_scraper.lua` settings file.
-3. Copy the previous known-good `metadata_scraper.koplugin` folder over the plugin directory, or delete only the plugin folder and install the previous version cleanly.
-4. Leave `koreader/settings/metadata_scraper.lua` in place if you want to retain provider credentials and preferences.
-5. Restart KOReader.
-
-The updater also keeps its own staged/backup files under KOReader's data directory, below:
-
-```text
-cache/metadata_scraper/updater/
-```
-
-These backups are intended for update recovery, not as a replacement for keeping your own configuration backup.
-
-## Files, settings, backups and privacy
-
-### Plugin code
-
-```text
-koreader/plugins/metadata_scraper.koplugin/
-```
-
-### Plugin configuration
-
-```text
-koreader/settings/metadata_scraper.lua
-```
-
-This settings file contains provider credentials, provider toggles, metadata-field choices, update preferences, and locally retained provider/ISBN link information.
-
-### Book metadata
-
-The plugin asks KOReader to write custom metadata and covers through KOReader's normal sidecar mechanisms. The exact sidecar location follows the user's KOReader document-metadata configuration.
-
-The original EPUB is not rewritten.
-
-### Credential security
-
-Provider credentials are stored locally as plain configuration values. This plugin does not encrypt them.
-
-Recommended precautions:
-
-- do not commit `metadata_scraper.lua` to a public repository;
-- do not include your real token/key in screenshots or bug reports;
-- redact credentials from KOReader logs before posting them publicly;
-- keep a private backup of the settings file before manual edits or major upgrades.
-
-### Network privacy
-
-When you perform a search, the selected external providers receive the search terms needed for the request. Cover images are downloaded from provider-returned image URLs when cover writing is enabled.
+The EPUB itself is not uploaded by this plugin.
 
 ## Troubleshooting
 
-| Symptom | Likely cause | What to do |
-|---|---|---|
-| Metadata Scraper does not appear in KOReader | Wrong plugin folder name, nested folder, plugin not enabled, or KOReader was not restarted | Confirm `koreader/plugins/metadata_scraper.koplugin/main.lua` exists directly, enable the plugin if necessary, and restart KOReader |
-| Kindle is connected but the computer does not show normal USB storage while KOReader is open | KOReader/Kindle USBMS behaviour | Exit KOReader back to the Kindle UI, then reconnect USB |
-| Hardcover says `Malformed Authorization header` | Older provider code sent a raw token without the required Bearer scheme | Update to the current provider/plugin. Current code accepts either a raw token or `Bearer <token>` and normalises it correctly |
-| Hardcover token works with `me { id username }` but common books return `No matches found` | Older Hardcover parser assumed a flat result array and did not handle Typesense `hits[].document` | Update to v0.1.2-era code or newer; the current provider normalises flat, hit-wrapped, and JSON-encoded search results |
-| Hardcover works on PC/Mac but not on Kindle | Old plugin file still installed, credential has accidental whitespace/newline, or KOReader was not restarted after replacement | Replace the current `providers/hardcover.lua` or full plugin folder, verify the token line, and fully restart KOReader |
-| Google Books returns HTTP 429 | Anonymous/shared quota, project quota, or repeated requests | Configure your own Google Books API key. Current code respects `Retry-After`/cooldown and lets other providers continue |
-| Google Books returns 403 | API/key restriction or project configuration issue | Confirm Books API access in the Google Cloud project and review API-key restrictions |
-| Google Books is not searched | No API key saved or provider disabled | Save a Google Books API key through Provider accounts or enable Google Books under Providers |
-| Amazon authentication fails | Incorrect credentials, Creators API eligibility, wrong Partner Tag, or marketplace mismatch | Confirm Creators API access, Credential ID/secret, marketplace, and that the Partner Tag belongs to the target marketplace |
-| Selecting one provider produces a configuration error even though that provider is disabled | Explicit Search source selection overrides the normal provider toggle for that search | Configure the selected provider or switch Search source back to All enabled sources |
-| Cover fails but metadata is saved | Cover host/download failed while metadata write succeeded | Retry later, choose another candidate/provider, or disable Cover if text metadata is the priority |
-| Built-in updater says the plugin is up to date while GitHub `main` has newer fixes | The updater follows the latest published Release, not `main` | Install the unreleased fix manually or wait until a new Release is published |
-| Update fails with a manifest/version error | Release tag and `update.json` do not match, or the release was published incorrectly | Use a manual known-good release and report the release packaging problem |
-| Settings disappear after manual update | The settings file was deleted or reset, not merely the plugin folder | Restore the backed-up `koreader/settings/metadata_scraper.lua` file |
-| Metadata appears stale in the file manager | KOReader cache/UI has not refreshed as expected | Close/reopen the book or file manager; if necessary restart KOReader |
+### Plugin does not appear
 
-When reporting a provider problem, include the exact error text and provider name but **redact API keys, Bearer tokens, Amazon secrets, and Partner Tags where appropriate**.
+- Verify the folder is directly under `koreader/plugins/`.
+- Verify it is not nested twice.
+- Restart KOReader.
+- Confirm your KOReader version is supported.
 
-## Fix history
+### Hardcover says malformed Authorization header
 
-### v0.1.2-era changes
+Use current plugin code. Store either a raw Hardcover token or a single `Bearer ...` prefix; the provider normalizes it.
 
-- Fixed Hardcover searches that authenticated successfully but returned no visible candidates because `search.results` was not always a flat array.
-- Added normalisation for Typesense `hits[].document`, hit arrays, flat arrays, and JSON-encoded search payloads.
-- Added a diagnostic when Hardcover returns IDs without readable result documents.
-- Retained the Hardcover Bearer-auth normalisation fix.
-- Bumped updater/manifest metadata to 0.1.2.
+### Hardcover authenticates but returns No matches
 
-### Post-v0.1.1 Hardcover auth hotfix
+Use current plugin code with the Typesense response normalizer. This was a known issue fixed after authentication itself was already working.
 
-- Corrected Hardcover authentication after live testing showed that `Authorization: Bearer <token>` is required.
-- Raw stored tokens are automatically prefixed with `Bearer `.
-- Already-prefixed values are accepted without producing `Bearer Bearer ...`.
-- Updated the modern Kindle/Coloursoft documentation.
+### Google returns 429
 
-### v0.1.1-era changes
+- use your own Google Books API key;
+- check Books API enablement/key restrictions/quota;
+- allow the plugin cooldown to expire;
+- use another enabled provider meanwhile.
 
-- Added a GitHub Release update checker/downloader.
-- Added staged update downloads, backup, rollback, and restart instructions.
-- Added automatic update checks at most once every 24 hours without waking Wi-Fi just for the check.
-- Changed Google Books to require a project API key in the plugin instead of relying on anonymous/shared quota.
-- Improved Google Books 403/429 error reporting.
-- Added `Retry-After` support and bounded cooldown/backoff for Google Books quota/rate-limit responses.
-- Kept other enabled metadata providers usable when Google Books is throttled.
-- Repaired corruption/typos that had slipped into the original repository copy of `main.lua`.
+### Amazon authentication fails
 
-### v0.1.0
+- verify Credential ID/secret;
+- verify the **credential version** (`3.1/3.2/3.3`);
+- verify Partner Tag and marketplace eligibility;
+- do not assume changing marketplace changes the credential's OAuth version.
 
-Initial device-test release with:
+### Wrong edition is ranked highly
 
-- Hardcover
-- Amazon Creators API
-- Google Books
-- Open Library
-- KOReader custom metadata writing
-- custom covers
-- match ranking
-- configurable metadata fields
-- bounded folder batch processing
-- Zen UI-friendly controls
+Inspect ISBN, confidence, Match reasons, Format, and Edition. Explicit print/audiobook conflicts are intentionally capped for EPUB searches, but providers that omit format cannot be treated as conflicting without evidence.
 
-## Release-maintainer checklist
+### Cover did not replace
 
-The built-in updater depends on correctly versioned releases. Before publishing a new version:
+The plugin may have rejected a bad/non-image payload or restored the old cover after a KOReader write failure. Generate sanitized support diagnostics if needed.
 
-1. Update the version in `_meta.lua`.
-2. Update `CURRENT_VERSION` in `lib/updater.lua`.
-3. Update versioned User-Agent strings where appropriate.
-4. Update the version shown in the plugin's **About** text.
-5. Update `update.json` so its `version` exactly matches the intended release version.
-6. Confirm `update.json` lists every runtime file required by the plugin.
-7. Run Lua syntax validation, for example with `texluac -p`, against every `.lua` file.
-8. Test at least one normal metadata search and one authenticated provider.
-9. Test the update-version comparison.
-10. Build the release ZIP with `metadata_scraper.koplugin/` as the plugin directory, avoiding accidental double nesting.
-11. Create a Git tag in the form `vX.Y.Z` from the intended release commit.
-12. Publish a GitHub Release for that tag.
-13. Attach the versioned plugin ZIP, ideally named like:
+### Batch changed nothing
 
-    ```text
-    metadata_scraper_koreader_vX.Y.Z.zip
-    ```
+The first batch phase is discovery-only. After discovery, confirm the second **Apply** dialog. If Ready to apply is zero, inspect the selected threshold, match confidence, provider errors, and whether files were skipped as already matched.
 
-14. Confirm the GitHub `/releases/latest` API returns the new release.
-15. Confirm the tagged `update.json` is reachable and its version matches the tag without the leading `v`.
-16. From an older plugin version, run **Check for updates…**, install the update, restart KOReader, and verify the new version before considering the release complete.
+## Development and tests
 
-## External documentation
+The repository includes Lua 5.1 checks and regression suites for:
 
-- KOReader releases: https://github.com/koreader/koreader/releases
-- KindleModding KOReader installation: https://kindlemodding.org/jailbreaking/post-jailbreak/koreader.html
-- Hardcover API Getting Started: https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/api/Getting-Started.mdx
-- Hardcover search guide: https://github.com/hardcoverapp/hardcover-docs/blob/main/src/content/docs/api/guides/Searching.mdx
-- Google Books API usage: https://developers.google.com/books/docs/v1/using
-- Amazon Creators API authentication: https://affiliate-program.amazon.com/creatorsapi/docs/en-us/get-started/using-curl
-- Amazon Creators API SearchItems: https://affiliate-program.amazon.com/creatorsapi/docs/en-us/api-reference/operations/search-items
+- provider parsing/authentication/status;
+- matching/ISBN/conflict/edition logic;
+- author normalization;
+- two-phase batch wiring;
+- HTTP and cover hardening;
+- diagnostics redaction;
+- metadata lifecycle/undo;
+- updater SHA-256 integrity.
+
+`tests/edition_batch.lua` specifically guards the v0.1.3 media-kind and batch-discovery behavior.
+
+## Release maintainer workflow
+
+Before a stable release:
+
+1. Freeze runtime behavior.
+2. Confirm `_meta.lua`, `lib/version.lua`, updater metadata, and `update.json` all identify the same version.
+3. Run Lua syntax checks and all regression suites.
+4. Update README, CHANGELOG, ROADMAP, implementation checklist, and the release/device test checklist.
+5. Generate `update.json` SHA-256 entries from the exact frozen runtime tree.
+6. Run `python3 scripts/generate_update_manifest.py --check`.
+7. Build the release ZIP with exactly one top-level `metadata_scraper.koplugin/` directory.
+8. Verify ZIP contents and Lua syntax from the built artifact.
+9. Record the release ZIP SHA-256.
+10. Merge the approved release branch.
+11. Tag the exact intended merged commit as `vX.Y.Z`.
+12. Publish a GitHub Release and attach the matching ZIP.
+13. Verify `/releases/latest` resolves to the new published release.
+14. Test **Check for updates…** from an older compatible installation when practical.
+
+## Roadmap
+
+See:
+
+- [`ROADMAP.md`](ROADMAP.md)
+- [`docs/ROADMAP_IMPLEMENTATION_CHECKLIST.md`](docs/ROADMAP_IMPLEMENTATION_CHECKLIST.md)
+- [`docs/v0.1.3-testing.md`](docs/v0.1.3-testing.md)
+
+Major future areas include exact provider-record refresh, richer batch review, multi-source field merging, safe file renaming/library organization, and first-class audiobook metadata support.

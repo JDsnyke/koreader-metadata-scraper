@@ -1,18 +1,36 @@
 {
-  "version": "0.1.2",
+  "version": "0.1.3",
   "files": [
     "README.md",
     "_meta.lua",
     "main.lua",
     "update.json",
+    "lib/diagnostics.lua",
     "lib/http.lua",
     "lib/matcher.lua",
     "lib/updater.lua",
     "lib/util.lua",
+    "lib/version.lua",
     "lib/writer.lua",
     "providers/amazon.lua",
     "providers/googlebooks.lua",
     "providers/hardcover.lua",
     "providers/openlibrary.lua"
-  ]
+  ],
+  "sha256": {
+    "README.md": "449ce9b582e1132311e46da44d2f5ad16b4d28c0f5bd907933cb51af5b62ef20",
+    "_meta.lua": "9463ff5c8c17d64b8d5d7a841e2ba3beab8fbdf9fca556d1b559de968cd1877b",
+    "lib/diagnostics.lua": "8963192272e3a443a054132b9513768b13b90ad04b5d2885b8d21fac28b69dc9",
+    "lib/http.lua": "78b72b303578241b6db3524d4204d0e3c92aabcec0d0f118268f07af61d3846b",
+    "lib/matcher.lua": "f27c69ac8d90aafffa18d8329c53fa9cf81ca6ab1ad0d540ee6f7c1ce07b6627",
+    "lib/updater.lua": "f00db9656abac2f0b4d8dd318df8e839fdf350e96e20aefbe352eadfa3869d69",
+    "lib/util.lua": "f9a96f093a5d18a8df3d442cec8fca33556fd0bfa7eb66a72d19de0695457393",
+    "lib/version.lua": "6913c57782cf8ccb94c51a5918c5f42b2e353bb65d1dff5128636b0ed584ea1a",
+    "lib/writer.lua": "7f57d4996351333c7314a92a74d36564f16ff2886a2e82c8f334ed9e034ecf63",
+    "main.lua": "451b7bf2842c51bdafd6a05ffa3248c3ccae78eef0a2c96b5e86a5c0d14b438d",
+    "providers/amazon.lua": "0732fe3deed333955f5208c63b91ca858ab38db5e5e6604941df15e14c0aac6e",
+    "providers/googlebooks.lua": "86aed74e6fc0818492d9570e309807a6ad73e064a3eb21ce630dc4a1c7dddcfe",
+    "providers/hardcover.lua": "81397eefb4ef277468c60dad35b5a6f92d3a336ae3f95738e3d9c11d0ae8290a",
+    "providers/openlibrary.lua": "6c54c67fb1e9d7a7341229a0892a403e815a4db27a3f5840a41f3ef4f66e5d7f"
+  }
 }

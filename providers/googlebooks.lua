@@ -1,5 +1,6 @@
 local HTTP = require("lib/http")
 local U = require("lib/util")
+local Version = require("lib/version")
 
 local P = { id = "google", label = "Google Books" }
 local cooldown_until = 0
@@ -33,6 +34,41 @@ local function retry_after_seconds(res, reason)
     return math.min(30 * (2 ^ (backoff_step - 1)), 900)
 end
 
+local function request(q, settings, max_results)
+    if not U.nonempty(settings.google_api_key) then
+        return nil, "Google Books API key required. Add one under Provider accounts."
+    end
+    local url = "https://www.googleapis.com/books/v1/volumes?q=" .. U.urlencode(q)
+        .. "&printType=books&maxResults=" .. tostring(max_results or 8)
+        .. "&key=" .. U.urlencode(settings.google_api_key)
+    return HTTP.json("GET", url, {
+        ["User-Agent"] = Version.user_agent(),
+    })
+end
+
+local function handle_rate_limit(res)
+    if res.code ~= 429 and res.code ~= 403 then return nil end
+    local detail, reason = error_details(res)
+    local quota_error = res.code == 429 or reason == "rateLimitExceeded"
+        or reason == "userRateLimitExceeded" or reason == "quotaExceeded"
+        or reason == "dailyLimitExceeded"
+    if not quota_error then return nil end
+    local wait = retry_after_seconds(res, reason)
+    cooldown_until = os.time() + wait
+    return detail .. " (cooldown " .. tostring(wait) .. "s)"
+end
+
+function P.status(settings)
+    if not U.nonempty(settings and settings.google_api_key) then
+        return "credentials missing", "missing"
+    end
+    local remaining = cooldown_until - os.time()
+    if remaining > 0 then
+        return "cooling down " .. tostring(math.max(1, remaining)) .. "s", "cooldown"
+    end
+    return "ready", "ready"
+end
+
 function P.search(query, settings)
     local now = os.time()
     if now < cooldown_until then
@@ -40,30 +76,13 @@ function P.search(query, settings)
         return {}, "Rate limited by Google Books; retry in about " .. tostring(remaining) .. " seconds"
     end
 
-    if not U.nonempty(settings.google_api_key) then
-        return {}, "Google Books API key required. Add one under Provider accounts."
-    end
-
     local q = qpart(query)
     if q == "" then return {}, "Title, author or ISBN required" end
-    local url = "https://www.googleapis.com/books/v1/volumes?q=" .. U.urlencode(q)
-        .. "&printType=books&maxResults=8&key=" .. U.urlencode(settings.google_api_key)
-    local res, err = HTTP.json("GET", url, {
-        ["User-Agent"] = "KOReader-Metadata-Scraper/0.1.1",
-    })
+    local res, err = request(q, settings, 8)
     if not res then return {}, err end
 
-    if res.code == 429 or res.code == 403 then
-        local detail, reason = error_details(res)
-        local quota_error = res.code == 429 or reason == "rateLimitExceeded"
-            or reason == "userRateLimitExceeded" or reason == "quotaExceeded"
-            or reason == "dailyLimitExceeded"
-        if quota_error then
-            local wait = retry_after_seconds(res, reason)
-            cooldown_until = os.time() + wait
-            return {}, detail .. " (cooldown " .. tostring(wait) .. "s)"
-        end
-    end
+    local rate_error = handle_rate_limit(res)
+    if rate_error then return {}, rate_error end
 
     if res.code ~= 200 then
         local detail = error_details(res)
@@ -93,6 +112,24 @@ function P.search(query, settings)
         })
     end
     return out
+end
+
+function P.test(settings)
+    local now = os.time()
+    if now < cooldown_until then
+        return false, "Cooling down for about " .. tostring(math.max(1, cooldown_until - now)) .. "s"
+    end
+    local res, err = request("intitle:test", settings, 1)
+    if not res then return false, err end
+    local rate_error = handle_rate_limit(res)
+    if rate_error then return false, rate_error end
+    if res.code ~= 200 then
+        local detail = error_details(res)
+        return false, detail
+    end
+    backoff_step = 0
+    cooldown_until = 0
+    return true, "API key accepted"
 end
 
 return P

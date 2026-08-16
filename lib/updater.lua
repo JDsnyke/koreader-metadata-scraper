@@ -1,17 +1,19 @@
 local DataStorage = require("datastorage")
 local util = require("util")
+local sha256 = require("ffi/sha2").sha256
 
 local HTTP = require("lib/http")
+local Version = require("lib/version")
 
 local M = {
-    CURRENT_VERSION = "0.1.2",
+    CURRENT_VERSION = Version.VERSION,
     release_api = "https://api.github.com/repos/JDsnyke/koreader-metadata-scraper/releases/latest",
     raw_base = "https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/",
 }
 
 local HEADERS = {
     ["Accept"] = "application/vnd.github+json",
-    ["User-Agent"] = "KOReader-Metadata-Scraper/0.1.2",
+    ["User-Agent"] = Version.user_agent(),
 }
 
 local function version_parts(v)
@@ -70,6 +72,10 @@ local function valid_relpath(path)
     return path:match("^[%w%._%-%/]+$") ~= nil
 end
 
+local function valid_sha256(value)
+    return type(value) == "string" and #value == 64 and value:match("^[0-9a-fA-F]+$") ~= nil
+end
+
 local function dirname(path)
     return path:match("^(.*)/[^/]+$")
 end
@@ -99,12 +105,39 @@ local function copy_file(src, dst)
     return write_file(dst, data)
 end
 
+local function file_sha256(path)
+    local data = read_file(path)
+    if data == nil then return nil, "Could not read " .. tostring(path) .. " for SHA-256 verification" end
+    local ok, digest = pcall(sha256, data)
+    if not ok then return nil, tostring(digest) end
+    if not valid_sha256(digest) then return nil, "SHA-256 implementation returned an invalid digest" end
+    return digest:lower()
+end
+
 local function manifest_url(tag)
     return M.raw_base .. tag .. "/update.json"
 end
 
 local function raw_url(tag, path)
     return M.raw_base .. tag .. "/" .. path
+end
+
+local function validate_manifest_hashes(manifest)
+    if type(manifest.sha256) ~= "table" then
+        return nil, "Release manifest contains no SHA-256 map"
+    end
+    for _, path in ipairs(manifest.files or {}) do
+        -- update.json is the signed-by-transport control document itself. It is
+        -- written from the exact response body already parsed below, avoiding a
+        -- self-referential hash requirement.
+        if path ~= "update.json" then
+            local expected = manifest.sha256[path]
+            if not valid_sha256(expected) then
+                return nil, "Release manifest has no valid SHA-256 for " .. tostring(path)
+            end
+        end
+    end
+    return true
 end
 
 function M.install(release, plugin_root)
@@ -127,6 +160,8 @@ function M.install(release, plugin_root)
     if type(manifest.files) ~= "table" or #manifest.files == 0 then
         return nil, "Release manifest contains no files"
     end
+    local hashes_ok, hashes_err = validate_manifest_hashes(manifest)
+    if not hashes_ok then return nil, hashes_err end
 
     local cache_root = DataStorage:getDataDir() .. "/cache/metadata_scraper/updater"
     local stage_root = cache_root .. "/stage-" .. release.version
@@ -134,17 +169,36 @@ function M.install(release, plugin_root)
     util.makePath(stage_root)
     util.makePath(backup_root)
 
-    -- Download everything before touching the installed plugin.
+    -- Download and verify everything before touching the installed plugin.
     for _, path in ipairs(manifest.files) do
         if not valid_relpath(path) then return nil, "Unsafe path in update manifest: " .. tostring(path) end
         local dest = stage_root .. "/" .. path
         local dir = dirname(dest)
         if dir then util.makePath(dir) end
-        local ok, err = HTTP.download(raw_url(release.tag, path), dest, {
-            ["User-Agent"] = HEADERS["User-Agent"],
-            ["Accept"] = "application/octet-stream",
-        })
+
+        local ok, err
+        if path == "update.json" then
+            ok, err = write_file(dest, manifest_res.body or "")
+        else
+            ok, err = HTTP.download(raw_url(release.tag, path), dest, {
+                ["User-Agent"] = HEADERS["User-Agent"],
+                ["Accept"] = "application/octet-stream",
+            })
+        end
         if not ok then return nil, "Download failed for " .. path .. ": " .. tostring(err) end
+
+        if path ~= "update.json" then
+            local actual, hash_err = file_sha256(dest)
+            if not actual then
+                os.remove(dest)
+                return nil, "Could not verify " .. path .. ": " .. tostring(hash_err)
+            end
+            local expected = tostring(manifest.sha256[path]):lower()
+            if actual ~= expected then
+                os.remove(dest)
+                return nil, "SHA-256 mismatch for " .. path
+            end
+        end
     end
 
     local applied = {}
@@ -158,6 +212,18 @@ function M.install(release, plugin_root)
             existed[path] = true
             local ok, err = write_file(backup_root .. "/" .. path, old)
             if not ok then return nil, "Could not back up " .. path .. ": " .. tostring(err) end
+        end
+    end
+
+    -- Re-verify staged payloads immediately before applying them. This is cheap
+    -- for plugin-sized files and catches local cache corruption between stages.
+    for _, path in ipairs(manifest.files) do
+        if path ~= "update.json" then
+            local actual, hash_err = file_sha256(stage_root .. "/" .. path)
+            if not actual then return nil, "Could not re-verify " .. path .. ": " .. tostring(hash_err) end
+            if actual ~= tostring(manifest.sha256[path]):lower() then
+                return nil, "Staged SHA-256 changed for " .. path
+            end
         end
     end
 
