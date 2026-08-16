@@ -39,6 +39,7 @@ check("conflicting ISBN caps otherwise exact title and author", function()
     })
     truthy(score <= 35, "conflicting ISBN must remain far below auto-apply threshold")
     truthy(contains(reasons, "ISBN conflict"))
+    truthy(Matcher.confidence(score, reasons) == "Weak")
 end)
 
 check("missing result ISBN does not falsely create an ISBN conflict", function()
@@ -53,6 +54,7 @@ check("missing result ISBN does not falsely create an ISBN conflict", function()
     })
     truthy(score >= 90)
     truthy(not contains(reasons, "ISBN conflict"))
+    truthy(Matcher.confidence(score, reasons) == "Strong")
 end)
 
 check("language conflict keeps textual match below default batch threshold", function()
@@ -81,6 +83,7 @@ check("strong author conflict penalizes exact title", function()
     })
     truthy(score < 70)
     truthy(contains(reasons, "author conflict"))
+    truthy(Matcher.confidence(score, reasons) == "Weak")
 end)
 
 check("strong series conflict prevents automatic acceptance", function()
@@ -111,6 +114,23 @@ check("exact ISBN remains authoritative even when text differs", function()
     })
     truthy(score == 100)
     truthy(contains(reasons, "ISBN exact"))
+    truthy(Matcher.confidence(score, reasons) == "Exact")
+end)
+
+check("rank attaches confidence class to provider results", function()
+    local results = {{
+        source = "test",
+        id = "1",
+        title = "Matilda",
+        authors = { "Roald Dahl" },
+        authors_text = "Roald Dahl",
+    }}
+    Matcher.rank({ title = "Matilda", author = "Roald Dahl" }, results, { test = 1 })
+    truthy(results[1].confidence == "Strong")
+end)
+
+check("middling clean evidence is classified Possible", function()
+    truthy(Matcher.confidence(75, { "title similar", "author similar" }) == "Possible")
 end)
 
 io.write(string.format("\n%d passed, %d failed\n", passed, failed))
