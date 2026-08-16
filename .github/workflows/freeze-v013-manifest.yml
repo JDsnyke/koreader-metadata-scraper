@@ -1,0 +1,35 @@
+name: Freeze v0.1.3 manifest
+
+on:
+  push:
+    branches:
+      - agent/v0.1.3-reliability-matching
+    paths:
+      - .github/workflows/freeze-v013-manifest.yml
+
+permissions:
+  contents: write
+
+jobs:
+  freeze:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+        with:
+          ref: agent/v0.1.3-reliability-matching
+          fetch-depth: 0
+
+      - name: Generate and verify manifest hashes
+        run: |
+          python3 scripts/generate_update_manifest.py
+          python3 scripts/generate_update_manifest.py --check
+
+      - name: Commit frozen manifest
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add update.json
+          git diff --cached --check
+          git commit -m "Freeze v0.1.3 runtime manifest hashes"
+          git push origin HEAD:agent/v0.1.3-reliability-matching
