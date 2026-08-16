@@ -39,10 +39,11 @@ check("context Metadata actions keep their parent dialog underneath child window
     truthy(not data:find('UIManager:close(dialog); self:testProviders()', 1, true), "Quick Settings closes before provider diagnostics")
 end)
 
-check("ZenPM documentation exposes a paste-ready source URL", function()
-    local source = "https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/main/"
-    truthy(read_file("README.md"):find(source, 1, true), "README missing ZenPM source URL")
-    truthy(read_file("docs/zenpm.md"):find(source, 1, true), "ZenPM guide missing source URL")
+check("ZenPM documentation exposes a paste-ready Pages source URL", function()
+    local source = "https://jdsnyke.github.io/koreader-metadata-scraper/"
+    truthy(read_file("README.md"):find(source, 1, true), "README missing ZenPM Pages source URL")
+    truthy(read_file("docs/zenpm.md"):find(source, 1, true), "ZenPM guide missing Pages source URL")
+    truthy(not read_file("README.md"):find("https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/main/", 1, true), "README still recommends raw GitHub source")
 end)
 
 io.write(string.format("\n%d passed, %d failed\n", passed, failed))
