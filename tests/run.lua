@@ -232,7 +232,7 @@ check("Google Books honors 429 Retry-After and exposes cooldown status", functio
     package.loaded["lib/http"] = {
         json = function(method, url, headers)
             calls = calls + 1
-            eq(headers["User-Agent"], "KOReader-Metadata-Scraper/0.1.3")
+            eq(headers["User-Agent"], "KOReader-Metadata-Scraper/0.1.4")
             return {
                 code = 429,
                 headers = { ["Retry-After"] = "120" },
