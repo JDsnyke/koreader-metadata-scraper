@@ -29,8 +29,11 @@ jobs:
           python3 -m py_compile scripts/*.py
           python3 -m json.tool update.json >/dev/null
           python3 -m json.tool manifest.json >/dev/null
+          python3 -m json.tool zenpm-repo/manifest.json >/dev/null
+          python3 -m json.tool zenpm-repo/packages/metadata-scraper/versions.json >/dev/null
           python3 scripts/lint_release.py
           python3 scripts/lint_zenpm_manifest.py
+          python3 scripts/lint_zenpm_site.py
           python3 scripts/generate_update_manifest.py --check
 
       - name: Syntax check Lua files
@@ -53,11 +56,14 @@ jobs:
           lua5.1 tests/run.lua
           lua5.1 tests/hardening.lua
           lua5.1 tests/diagnostics.lua
+          lua5.1 tests/diagnostics_persistence.lua
           lua5.1 tests/matcher_safety.lua
           lua5.1 tests/edition_batch.lua
           lua5.1 tests/updater_integrity.lua
+          lua5.1 tests/updater_v014.lua
           lua5.1 tests/lifecycle.lua
           lua5.1 tests/navigation.lua
+          lua5.1 tests/v014_roadmap.lua
 
       - name: Upload release candidate
         uses: actions/upload-artifact@v4
