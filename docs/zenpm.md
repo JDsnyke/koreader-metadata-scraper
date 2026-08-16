@@ -1,16 +1,16 @@
 # ZenPM repository support
 
-Metadata Scraper publishes a ZenPM v1 repository manifest at the repository root.
+Metadata Scraper publishes a ZenPM v1 `manifest.json` at the repository root.
 
-## Add the repository
+## Repository URL for users
 
-In ZenPM, open **Sources → Add repository** and use:
+In ZenPM, open **Sources → Add repository** and paste this base URL exactly:
 
 `https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/main/`
 
-ZenPM appends `manifest.json` to the repository base URL and reads the package metadata from that file.
+This is the canonical ZenPM-compatible source URL for Metadata Scraper. ZenPM appends/requests `manifest.json` from the repository base, so the normal GitHub webpage URL (`https://github.com/JDsnyke/koreader-metadata-scraper`) should not be used as the package source.
 
-The listing should show:
+After adding the source, refresh ZenPM. The listing should show:
 
 - Repository: **JDsnyke KOReader Plugins**
 - Application: **Metadata Scraper**
@@ -20,7 +20,7 @@ The package maps to the installed KOReader module `metadata_scraper.koplugin` th
 
 ## Release maintenance
 
-For each release, update the package `version`, `source_asset`, and `size` fields in `manifest.json` to match the published GitHub release asset. Keep `size` encoded as a JSON string because ZenPM's manifest schema expects a string.
+For each published release, update the package `version`, `source_asset`, and `size` fields in `manifest.json` to match the GitHub release asset. Keep `size` encoded as a JSON string because ZenPM's manifest schema expects a string.
 
 Run:
 

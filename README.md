@@ -51,6 +51,16 @@ The plugin itself does not depend on a particular jailbreak once KOReader is alr
 
 Exit KOReader before using normal USB mass storage. When KOReader is running, a USB cable may only charge the device depending on the Kindle environment.
 
+## Install with ZenPM
+
+Metadata Scraper exposes a ZenPM v1 repository manifest directly from this repository. In **ZenPM → Sources → Add repository**, paste this repository URL exactly:
+
+`https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/main/`
+
+ZenPM will read `manifest.json` from that base URL and list **JDsnyke KOReader Plugins → Metadata Scraper**. Use the raw-content base URL above rather than the normal GitHub webpage URL; ZenPM repository sources must resolve `manifest.json` directly.
+
+After adding it, refresh ZenPM sources. Published Metadata Scraper releases can then be installed or updated from the package listing. See [`docs/zenpm.md`](docs/zenpm.md) for repository-format and maintenance details.
+
 ## Installation
 
 ### Fresh installation

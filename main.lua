@@ -340,16 +340,16 @@ end
 function MetadataScraper:showBookActions(file)
     local dialog
     local rows = {
-        {{ text = _("Fetch metadata"), align = "left", callback = function() UIManager:close(dialog); self:startForFile(file) end }},
+        {{ text = _("Fetch metadata"), align = "left", callback = function() self:startForFile(file) end }},
     }
     if self.settings.undo_records[file] then
-        table.insert(rows, {{ text = _("Undo last metadata update"), align = "left", callback = function() UIManager:close(dialog); self:confirmUndo(file) end }})
+        table.insert(rows, {{ text = _("Undo last metadata update"), align = "left", callback = function() self:confirmUndo(file) end }})
     end
     if self.settings.book_links[file] then
-        table.insert(rows, {{ text = _("Last match details"), align = "left", callback = function() UIManager:close(dialog); self:showLastMatchDetails(file) end }})
+        table.insert(rows, {{ text = _("Last match details"), align = "left", callback = function() self:showLastMatchDetails(file) end }})
     end
-    table.insert(rows, {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() UIManager:close(dialog); self:showSourceSelector() end }})
-    table.insert(rows, {{ text = _("Settings"), align = "left", callback = function() UIManager:close(dialog); self:showQuickSettings() end }})
+    table.insert(rows, {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() self:showSourceSelector() end }})
+    table.insert(rows, {{ text = _("Settings"), align = "left", callback = function() self:showQuickSettings() end }})
     dialog = ButtonDialog:new{ title = _("Metadata"), title_align = "center", buttons = rows }
     UIManager:show(dialog)
 end
@@ -359,9 +359,9 @@ function MetadataScraper:showFolderActions(path)
     dialog = ButtonDialog:new{
         title = _("Metadata"), title_align = "center",
         buttons = {
-            {{ text = _("Fetch metadata in folder"), align = "left", callback = function() UIManager:close(dialog); self:confirmBatch(path) end }},
-            {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() UIManager:close(dialog); self:showSourceSelector() end }},
-            {{ text = _("Settings"), align = "left", callback = function() UIManager:close(dialog); self:showQuickSettings() end }},
+            {{ text = _("Fetch metadata in folder"), align = "left", callback = function() self:confirmBatch(path) end }},
+            {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() self:showSourceSelector() end }},
+            {{ text = _("Settings"), align = "left", callback = function() self:showQuickSettings() end }},
         },
     }
     UIManager:show(dialog)
@@ -442,26 +442,26 @@ function MetadataScraper:showQuickSettings()
     dialog = ButtonDialog:new{
         title = _("Metadata Scraper"), title_align = "center",
         buttons = {
-            {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() UIManager:close(dialog); self:showSourceSelector() end }},
-            {{ text = _("Providers"), align = "left", callback = function() UIManager:close(dialog); self:showProviderDialog() end }},
-            {{ text = _("Test provider connections…"), align = "left", callback = function() UIManager:close(dialog); self:testProviders() end }},
-            {{ text = _("Save support diagnostics…"), align = "left", callback = function() UIManager:close(dialog); self:saveSupportDiagnostics() end }},
-            {{ text = _("Metadata fields"), align = "left", callback = function() UIManager:close(dialog); self:showFieldDialog() end }},
+            {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() self:showSourceSelector() end }},
+            {{ text = _("Providers"), align = "left", callback = function() self:showProviderDialog() end }},
+            {{ text = _("Test provider connections…"), align = "left", callback = function() self:testProviders() end }},
+            {{ text = _("Save support diagnostics…"), align = "left", callback = function() self:saveSupportDiagnostics() end }},
+            {{ text = _("Metadata fields"), align = "left", callback = function() self:showFieldDialog() end }},
             {{ text = _("Write mode") .. ": " .. replace, align = "left", callback = function()
                 self.settings.replace_existing = not self.settings.replace_existing; self:saveSettings()
                 UIManager:close(dialog); UIManager:nextTick(function() self:showQuickSettings() end)
             end }},
-            {{ text = _("Batch threshold") .. ": " .. tostring(threshold) .. "%", align = "left", callback = function() UIManager:close(dialog); self:showBatchThresholdSelector() end }},
+            {{ text = _("Batch threshold") .. ": " .. tostring(threshold) .. "%", align = "left", callback = function() self:showBatchThresholdSelector() end }},
             {{ text = _("Skip already matched in batch") .. (self.settings.batch_skip_matched and "  ✓" or ""), align = "left", callback = function()
                 self.settings.batch_skip_matched = not self.settings.batch_skip_matched; self:saveSettings()
                 UIManager:close(dialog); UIManager:nextTick(function() self:showQuickSettings() end)
             end }},
-            {{ text = _("Hardcover account…"), align = "left", callback = function() UIManager:close(dialog); self:editHardcover() end }},
-            {{ text = _("Amazon account…"), align = "left", callback = function() UIManager:close(dialog); self:editAmazon() end }},
-            {{ text = _("Amazon marketplace") .. ": " .. self.settings.amazon_marketplace, align = "left", callback = function() UIManager:close(dialog); self:showMarketplaceSelector() end }},
-            {{ text = _("Amazon search index") .. ": " .. self.settings.amazon_search_index, align = "left", callback = function() UIManager:close(dialog); self:showAmazonIndexSelector() end }},
-            {{ text = _("Google Books API key…"), align = "left", callback = function() UIManager:close(dialog); self:editGoogle() end }},
-            {{ text = _("Check for updates…"), align = "left", callback = function() UIManager:close(dialog); self:checkForUpdates(false) end }},
+            {{ text = _("Hardcover account…"), align = "left", callback = function() self:editHardcover() end }},
+            {{ text = _("Amazon account…"), align = "left", callback = function() self:editAmazon() end }},
+            {{ text = _("Amazon marketplace") .. ": " .. self.settings.amazon_marketplace, align = "left", callback = function() self:showMarketplaceSelector() end }},
+            {{ text = _("Amazon search index") .. ": " .. self.settings.amazon_search_index, align = "left", callback = function() self:showAmazonIndexSelector() end }},
+            {{ text = _("Google Books API key…"), align = "left", callback = function() self:editGoogle() end }},
+            {{ text = _("Check for updates…"), align = "left", callback = function() self:checkForUpdates(false) end }},
             {{ text = _("Automatic update checks") .. (self.settings.auto_update_check and "  ✓" or ""), align = "left", callback = function()
                 self.settings.auto_update_check = not self.settings.auto_update_check; self:saveSettings()
                 UIManager:close(dialog); UIManager:nextTick(function() self:showQuickSettings() end)
@@ -1275,6 +1275,7 @@ function MetadataScraper:addToMainMenu(menu_items)
             {
                 text = _("Fetch metadata for current book"),
                 enabled_func = function() local f = self:getCurrentFile(); return f and self:isEpub(f) end,
+                keep_menu_open = true,
                 callback = function() self:startForFile(self:getCurrentFile()) end,
             },
             {
@@ -1283,6 +1284,7 @@ function MetadataScraper:addToMainMenu(menu_items)
                     local f = self:getCurrentFile()
                     return f and self.settings.undo_records and self.settings.undo_records[f] ~= nil
                 end,
+                keep_menu_open = true,
                 callback = function() self:confirmUndo(self:getCurrentFile()) end,
             },
             {
@@ -1291,12 +1293,14 @@ function MetadataScraper:addToMainMenu(menu_items)
                     local f = self:getCurrentFile()
                     return f and self.settings.book_links and self.settings.book_links[f] ~= nil
                 end,
+                keep_menu_open = true,
                 callback = function() self:showLastMatchDetails(self:getCurrentFile()) end,
             },
-            { text = _("Choose EPUB…"), callback = function() self:chooseEpub() end },
-            { text = _("Batch folder…"), callback = function() self:chooseBatchFolder() end, separator = true },
+            { text = _("Choose EPUB…"), keep_menu_open = true, callback = function() self:chooseEpub() end },
+            { text = _("Batch folder…"), keep_menu_open = true, callback = function() self:chooseBatchFolder() end, separator = true },
             {
                 text_func = function() return _("Batch threshold") .. ": " .. tostring(tonumber(self.settings.batch_threshold) or 90) .. "%" end,
+                keep_menu_open = true,
                 callback = function() self:showBatchThresholdSelector() end,
             },
             {
@@ -1324,13 +1328,13 @@ function MetadataScraper:addToMainMenu(menu_items)
             {
                 text = _("Provider accounts"),
                 sub_item_table = {
-                    { text = _("Test provider connections…"), callback = function() self:testProviders() end },
-                    { text = _("Save support diagnostics…"), callback = function() self:saveSupportDiagnostics() end },
-                    { text = _("Hardcover API token…"), callback = function() self:editHardcover() end },
-                    { text = _("Amazon Creators API…"), callback = function() self:editAmazon() end },
-                    { text_func = function() return _("Amazon marketplace") .. ": " .. self.settings.amazon_marketplace end, callback = function() self:showMarketplaceSelector() end },
-                    { text_func = function() return _("Amazon search index") .. ": " .. self.settings.amazon_search_index end, callback = function() self:showAmazonIndexSelector() end },
-                    { text = _("Google Books API key…"), callback = function() self:editGoogle() end },
+                    { text = _("Test provider connections…"), keep_menu_open = true, callback = function() self:testProviders() end },
+                    { text = _("Save support diagnostics…"), keep_menu_open = true, callback = function() self:saveSupportDiagnostics() end },
+                    { text = _("Hardcover API token…"), keep_menu_open = true, callback = function() self:editHardcover() end },
+                    { text = _("Amazon Creators API…"), keep_menu_open = true, callback = function() self:editAmazon() end },
+                    { text_func = function() return _("Amazon marketplace") .. ": " .. self.settings.amazon_marketplace end, keep_menu_open = true, callback = function() self:showMarketplaceSelector() end },
+                    { text_func = function() return _("Amazon search index") .. ": " .. self.settings.amazon_search_index end, keep_menu_open = true, callback = function() self:showAmazonIndexSelector() end },
+                    { text = _("Google Books API key…"), keep_menu_open = true, callback = function() self:editGoogle() end },
                 },
             },
             {
@@ -1354,6 +1358,7 @@ function MetadataScraper:addToMainMenu(menu_items)
             },
             {
                 text = _("Check for updates…"),
+                keep_menu_open = true,
                 callback = function() self:checkForUpdates(false) end,
             },
             {
@@ -1364,6 +1369,7 @@ function MetadataScraper:addToMainMenu(menu_items)
             },
             {
                 text = _("About"),
+                keep_menu_open = true,
                 callback = function()
                     UIManager:show(InfoMessage:new{ text = string.format(_([[Metadata Scraper %s
 

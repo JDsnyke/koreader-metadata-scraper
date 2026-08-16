@@ -2,6 +2,18 @@
 
 All notable changes to Metadata Scraper for KOReader will be documented here.
 
+## [0.1.4] - Unreleased
+
+### Navigation and UX
+
+- Keep the **Metadata Scraper** KOReader submenu open underneath child dialogs so closing search forms, account dialogs, diagnostics, About, update checks, file/folder pickers, and other plugin windows returns to Metadata Scraper instead of the reader/file manager.
+- Preserve the Zen/context **Metadata** action dialog and Quick Settings as parent screens while their child windows are open.
+
+### ZenPM
+
+- Document the canonical ZenPM-compatible repository source URL: `https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/main/`.
+- Clarify that users should add the raw-content repository base rather than the normal GitHub webpage URL so ZenPM can resolve `manifest.json`.
+
 ## [0.1.3] - Unreleased
 
 ### Reliability
