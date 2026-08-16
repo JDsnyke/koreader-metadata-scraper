@@ -36,14 +36,14 @@ A higher score means “more valuable to prioritize,” not “must be implement
 |---:|---:|---|---:|---:|---:|---:|---:|---:|---|
 | 1 | #48 | Crash/error isolation | **98** | 5 | 5 | 5 | 5 | 4 | **v0.1.3 core expedited**; deeper shared wrappers/logging follow-up |
 | 2 | #26 | Updater SHA-256 integrity verification | **96** | 5 | 5 | 5 | 5 | 3 | **v0.1.3 expedited** |
-| 3 | #42 | Search confidence safeguards | **96** | 5 | 5 | 5 | 5 | 3 | **v0.1.3 core expedited**; edition/format expansion v0.2.0 |
+| 3 | #42 | Search confidence safeguards | **96** | 5 | 5 | 5 | 5 | 3 | **v0.1.3 core expedited**, including known format conflicts; deeper work/edition identity later |
 | 4 | #46 | Provider-specific diagnostic logs | **96** | 5 | 5 | 5 | 5 | 3 | **v0.1.3 in-memory sanitized core**; persistent logs v0.1.4 |
-| 5 | #6 | Exact-edition awareness | **94** | 5 | 5 | 5 | 5 | 2 | v0.2.0 |
+| 5 | #6 | Exact-edition awareness | **94** | 5 | 5 | 5 | 5 | 2 | **v0.1.3 core expedited** — ISBN + known ebook/print/audiobook evidence; canonical work/edition IDs later |
 | 6 | #51 | Safe file renaming and library organization | **94** | 5 | 5 | 5 | 5 | 2 | v0.2.2 |
 | 7 | #47 | Copy/save diagnostics/support bundle | **93** | 5 | 4 | 5 | 5 | 4 | **v0.1.3 save-to-file core**; richer export/copy v0.1.4 |
 | 8 | #12 | Undo last metadata change | **92** | 5 | 5 | 4 | 5 | 3 | **v0.1.3 one-step undo expedited**; multi-revision history v0.2.0 |
 | 9 | #1 | Refresh previously matched metadata | **91** | 5 | 4 | 5 | 5 | 3 | **v0.1.3 provenance groundwork**; direct refresh v0.2.0 |
-| 10 | #14 | Batch preview before writing | **90** | 5 | 5 | 4 | 5 | 2 | v0.2.0 |
+| 10 | #14 | Batch preview before writing | **90** | 5 | 5 | 4 | 5 | 2 | **v0.1.3 two-phase discovery/apply core expedited**; per-book interactive review later |
 | 11 | #24 | Better HTTP resilience | **90** | 4 | 5 | 5 | 5 | 3 | **v0.1.3 cautious GET/download core**; provider pacing follow-up |
 | 12 | #27 | Updater deletion/migration support | **90** | 4 | 5 | 5 | 5 | 3 | v0.1.4 |
 | 13 | #25 | Cover download validation | **88** | 4 | 5 | 4 | 5 | 4 | **v0.1.3 expedited core**; dimensions/placeholder quality later |
@@ -51,7 +51,7 @@ A higher score means “more valuable to prioritize,” not “must be implement
 | 15 | #2 | Metadata source merging | **84** | 5 | 3 | 5 | 5 | 2 | v0.2.1 |
 | 16 | #30 | Credential masking and validation | **84** | 4 | 5 | 3 | 5 | 4 | v0.1.4; diagnostics redaction core already in v0.1.3 |
 | 17 | #10 | Current vs proposed result details | **83** | 5 | 4 | 3 | 5 | 3 | **v0.1.3 core expedited**; richer field/source comparison v0.2.0 |
-| 18 | #40 | Better author normalization | **83** | 4 | 4 | 4 | 5 | 4 | v0.2.1 |
+| 18 | #40 | Better author normalization | **83** | 4 | 4 | 4 | 5 | 4 | **v0.1.3 comparison-only core expedited**; role-aware normalization v0.2.1 |
 | 19 | #44 | Explain-score details | **83** | 4 | 4 | 4 | 5 | 4 | **v0.1.3 match-reason core**; numeric/component breakdown later |
 | 20 | #52 | Audiobook metadata support | **82** | 5 | 3 | 5 | 5 | 1 | v0.3.0 |
 | 21 | #23 | Network-resilient batch resume | **81** | 4 | 5 | 4 | 4 | 2 | v0.2.0 |
@@ -89,11 +89,14 @@ A higher score means “more valuable to prioritize,” not “must be implement
 
 ## Expedited into v0.1.3
 
-The following roadmap work was deliberately pulled forward because it is bounded, heavily testable, and reduces release risk without adding destructive library operations:
+The following roadmap work was deliberately pulled forward because it is bounded, heavily testable, and reduces release risk without adding destructive source-file operations:
 
 - **#48 Crash/error isolation (core):** provider-result ranking, KOReader metadata reads, metadata writes, and cover writes now convert unexpected failures into controlled outcomes where practical.
 - **#26 Updater SHA-256 verification:** staged runtime files are hashed after download and again before apply using KOReader's bundled `ffi/sha2`; a mismatch aborts before installed files are touched.
-- **#42 Confidence safeguards (core):** contradictory valid ISBNs are capped far below the automatic threshold; strong author/language/series/year conflicts now reduce confidence.
+- **#42 Confidence safeguards (core):** contradictory valid ISBNs plus strong author/language/series/year and explicit format conflicts reduce confidence.
+- **#6 Exact-edition core:** every EPUB query identifies itself as an ebook; explicit provider print/audiobook evidence is downgraded below automatic thresholds, while unknown format stays neutral. Canonical provider work-vs-edition IDs remain future work.
+- **#14 Batch-preview core:** batch mode performs a no-write discovery phase, summarizes ready/low/no-match/already-matched/search-failure counts, and requires a second confirmation before writes. Interactive row-by-row borderline review remains future work.
+- **#40 Author-normalization core:** author comparison canonicalizes normalized tokens so surname-first/punctuation/order variants compare consistently without rewriting stored provider author text. Role-aware author/editor/translator/narrator handling remains future work.
 - **#46 Diagnostic logging (core):** a bounded in-memory sanitized event buffer captures relevant provider, HTTP, updater, metadata, and cover failures.
 - **#47 Support bundle (core):** **Save support diagnostics…** writes a redacted support file under the plugin cache directory.
 - **#24 HTTP resilience (core):** GET/HEAD requests and downloads receive one cautious retry for network failures and HTTP 502/503/504; 429/auth failures and ordinary POST requests are not blindly retried.
@@ -101,7 +104,7 @@ The following roadmap work was deliberately pulled forward because it is bounded
 - **#30 Credential safety (partial):** diagnostics have explicit and pattern-based redaction for configured tokens/keys/Amazon secrets and authorization/query-secret patterns.
 - **#10 Current vs proposed comparison (core):** the match preview now shows only the selected text fields that would actually change under the active write mode, with existing and proposed values where practical.
 - **#12 Undo (one-step core):** exact custom-metadata/custom-cover bytes are snapshotted before apply and can be restored for the current/context-selected book, including after a KOReader restart.
-- **#1 Refresh/provenance prerequisite:** the saved match record now contains provider ID, canonical identifiers, score/confidence/reasons, query, written fields, cover outcome, plugin version, and timestamp so later exact-record refresh has a stable base.
+- **#1 Refresh/provenance prerequisite:** the saved match record now contains provider ID, canonical identifiers, known format/edition evidence, score/confidence/reasons, query, written fields, cover outcome, plugin version, and timestamp so later exact-record refresh has a stable base.
 - **#13 History prerequisite:** v0.1.3 retains a single prior state per book and bounds the overall undo set to 20 books; true multi-revision history remains deferred.
 - **#11 Per-book field selection:** **Choose fields for this book…** creates a temporary field/cover selection for a single Apply action without altering the saved global defaults.
 - **#43 Confidence classes:** ranked results now expose evidence-aware **Exact**, **Strong**, **Possible**, and **Weak** classes alongside the numeric score.
@@ -109,7 +112,7 @@ The following roadmap work was deliberately pulled forward because it is bounded
 - **#18 Skip already matched (batch core):** batch mode can skip files with existing Metadata Scraper provenance before making provider requests; this is enabled by default.
 - **#45 Batch threshold presets:** Strict 95%, Recommended 90%, and Permissive 80% presets are available while preserving 90% as the default.
 
-These are still **unreleased branch changes** and require the v0.1.3 real-device release gate.
+These are still **unreleased branch changes** until the v0.1.3 merge/release workflow completes.
 
 ## Release themes
 
@@ -123,23 +126,25 @@ Primary themes:
 - automatic ISBN extraction and checksum validation;
 - ISBN-10/ISBN-13 canonical matching;
 - cross-provider result deduplication;
-- match reasons, conflict-aware safeguards, and confidence classes;
+- comparison-only author normalization;
+- match reasons, conflict-aware safeguards, confidence classes, and known edition-format evidence;
 - Current → Proposed change preview;
 - one-off per-book field/cover selection;
 - richer per-book provenance and Last match details;
 - persistent one-step undo of KOReader custom metadata/custom cover changes;
 - safer cover replacement and payload validation;
-- Amazon token-cache/authentication hardening;
+- Amazon token-cache/authentication hardening plus binding/edition evidence;
 - cautious transient GET/download retries;
 - malformed provider/result and KOReader write isolation;
 - sanitized in-memory diagnostics and support-file export;
 - SHA-256-verified future updater payloads;
+- two-phase no-write batch discovery before a second Apply confirmation;
 - safer batch controls: threshold presets and skip-already-matched behavior;
 - regression tests and Lua CI.
 
 Release tooling includes `scripts/generate_update_manifest.py` to generate or verify release payload hashes. The final release process must generate the manifest only after runtime files stop changing, then verify it before tagging.
 
-Release gate: complete the real-device checklist in `docs/v0.1.3-testing.md` before merge/release.
+Release gate: complete automated release-candidate checks and the real-device checklist in `docs/v0.1.3-testing.md` before publishing a stable GitHub Release.
 
 ### v0.1.4 — Remaining hardening & supportability
 
@@ -157,15 +162,15 @@ Primary follow-up items:
 - #25 optional image-dimension/placeholder quality checks;
 - #48 additional shared operation wrappers where real-device testing shows value.
 
-### v0.2.0 — Full metadata lifecycle, review & refresh
+### v0.2.0 — Full metadata lifecycle, interactive review & refresh
 
-Build on the lifecycle and batch-safety work already expedited into v0.1.3.
+Build on the lifecycle, edition-safety, and batch-discovery work already expedited into v0.1.3.
 
 Key remaining items:
-- #6 exact-edition awareness;
+- #6 canonical work-vs-edition provider identity and deeper edition fields beyond the v0.1.3 format/ISBN core;
 - #1 direct refresh of a previously matched provider record using saved provenance;
-- #14 batch preview before writing;
-- #42 expand confidence safeguards to explicit edition/format evidence;
+- #14 per-book interactive batch review/deselection beyond the v0.1.3 two-phase summary gate;
+- #42 extend edition conflicts as additional provider-specific format data becomes reliable;
 - #10 richer field/source comparison beyond the v0.1.3 core preview;
 - #44 numeric/component score breakdown beyond the existing match-reason text;
 - #23 resumable batch operations;
@@ -174,7 +179,7 @@ Key remaining items:
 - #16 batch summary/export;
 - #17 optional recursive batch mode.
 
-Already pulled forward from this release family: #11 per-book field selection, #18 skip-already-matched batch behavior, and #45 threshold presets.
+Already pulled forward from this release family: #11 per-book field selection, #18 skip-already-matched behavior, #45 threshold presets, #6 edition-format safeguards, and #14 no-write batch discovery/second confirmation.
 
 ### v0.2.1 — Multi-source quality & normalization
 
@@ -182,7 +187,7 @@ Improve metadata quality after the lifecycle model is stable.
 
 Key ranked items:
 - #2 multi-source metadata merging;
-- #40 author normalization;
+- #40 role-aware/deeper author normalization beyond the comparison-only v0.1.3 core;
 - #41 multi-author role handling;
 - #7 title cleaning;
 - #19 search/session cache;
@@ -197,7 +202,7 @@ Key ranked items:
 - #4 cover chooser;
 - #21 provider priorities.
 
-Confidence classes (#43) were pulled forward into v0.1.3; later work may refine them with edition/format evidence rather than introducing a second classification system.
+Confidence classes (#43) were pulled forward into v0.1.3; later work should refine the same system rather than introduce a second classification model.
 
 ### v0.2.2 — File organization & interoperability
 
@@ -216,7 +221,7 @@ File operations must preserve KOReader sidecars, reading progress, custom metada
 
 ### v0.3.0 — Audiobook metadata support
 
-Treat audiobook support as a first-class format architecture, not an EPUB special case.
+Treat audiobook support as a first-class format architecture, not an EPUB special case. The v0.1.3 matcher can identify known audiobook results only to prevent applying them to EPUB files; that safeguard is not audiobook support.
 
 Initial scope:
 - `.m4b`, `.mp3`, `.m4a`, with `.ogg`/`.opus` considered where practical;
@@ -238,8 +243,8 @@ Direct media-file tag writing, playback integration, and ebook↔audiobook work 
 
 1. **Safety before automation.** Any feature that can rename, delete, overwrite, or write into source files must have preview, validation, collision handling, and rollback/undo where feasible.
 2. **Provider failures stay isolated.** One provider must not crash or block healthy providers.
-3. **Exact identifiers beat fuzzy text.** Valid ISBN/provider IDs remain the strongest matching evidence.
-4. **Edition conflicts must reduce confidence.** Conflicting author, language, narrator, format, series, or identifier data should lower scores rather than be ignored.
+3. **Exact identifiers beat fuzzy text unless explicit edition evidence contradicts the media kind.** Valid ISBN/provider IDs remain the strongest matching evidence, but a known ebook/print/audiobook contradiction must not be ignored.
+4. **Unknown edition data is neutral.** Do not infer a conflicting format merely because a provider omits edition fields.
 5. **No silent destructive behavior.** Batch writes, file renames, source-file writes, and future audio tag writes require explicit user-visible controls.
 6. **Release branches require CI and device validation.** Automated tests are necessary but not sufficient for KOReader/Kindle UI and filesystem behavior.
 7. **Credentials never enter logs/support bundles.** Diagnostic output must redact tokens, secrets, API keys, authorization headers, credential IDs, and Partner Tags.
