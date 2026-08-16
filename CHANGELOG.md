@@ -8,6 +8,7 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 
 - Centralized the plugin version and HTTP User-Agent in `lib/version.lua` so provider, updater, metadata, and About-dialog versions cannot drift independently.
 - Added provider connection diagnostics for Hardcover, Amazon Creators API, Google Books, and Open Library.
+- Added lightweight provider readiness/status reporting in the Providers UI. Google Books exposes active cooldown time, Amazon indicates missing/configured/cached-token state, Hardcover indicates token configuration state, and Open Library reports its credential-free readiness.
 - Preserved an existing KOReader custom cover if replacement of the cover fails.
 - Added clearer per-provider errors/counts when a search returns no matches.
 - Added one broader title-only fallback when a strict title + author search returns no results.
@@ -28,6 +29,8 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 
 - **Expedited from the v0.2.0 lifecycle roadmap:** match preview now calculates the actual KOReader fields that will change under the current field selection and write mode.
 - The preview shows a bounded **Current → Proposed** comparison for changed title, authors, series, series index, language, and keywords; descriptions are represented as add/replace actions rather than dumping long text into the dialog.
+- Added **Choose fields for this book…**. A user can temporarily enable/disable title, authors, series, series index, language, genres/keywords, description, and cover for one Apply operation without changing the saved global defaults.
+- The normal **Apply** button continues to use the user's global field defaults unchanged.
 - An apply with no selected text changes and no cover change is treated as a no-op rather than creating an unnecessary custom-metadata sidecar.
 - Before any metadata or cover mutation, the plugin creates an undo snapshot of the exact existing KOReader custom-metadata file and custom-cover bytes.
 - If no custom metadata or cover existed before the apply, undo removes the newly created override instead of synthesizing an approximate prior state.
@@ -36,15 +39,24 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Undo restores the previous custom metadata and cover, then restores the previous Metadata Scraper provenance record.
 - Undo backup names are collision-checked and restore paths refuse to silently leave a competing current override behind.
 - One undo snapshot is retained per book, with the global undo-record set bounded to the 20 most recent books so cache/settings growth remains controlled.
-- Expanded per-book provenance to record provider/source ID, canonical ISBN, title/authors/series/language/date/publisher, score, match reasons, search query, fields written, cover outcome, plugin version, and timestamp.
-- Added **Last match details** for the current/context-selected book so the recorded source, provider ID, score, ISBN, written fields, reasons, date, and plugin version can be inspected without re-searching.
+- Expanded per-book provenance to record provider/source ID, canonical ISBN, title/authors/series/language/date/publisher, score, confidence class, match reasons, search query, fields written, cover outcome, plugin version, and timestamp.
+- Added **Last match details** for the current/context-selected book so the recorded source, provider ID, score, confidence, ISBN, written fields, reasons, date, and plugin version can be inspected without re-searching.
 - Cover-only changes can also be undone; a failed cover-only operation does not replace a previously valid undo record.
+
+### Batch workflow
+
+- Added batch confidence presets: **Strict (95%)**, **Recommended (90%)**, and **Permissive (80%)**.
+- The existing 90% behavior remains the default.
+- Added **Skip already matched in batch**, enabled by default. Files with existing Metadata Scraper provenance are skipped before provider queries are made, reducing unnecessary API calls and accidental repeat writes.
+- The batch confirmation dialog states when previously matched books will be skipped.
+- Batch processing remains current-folder-only, non-recursive, and bounded by the existing batch file limit.
 
 ### Hardcover
 
 - Retains the confirmed `Authorization: Bearer <token>` authentication fix.
 - Retains compatibility with Hardcover's Typesense-backed search result shapes, including `hits[].document` and JSON-encoded results.
 - Added an authenticated account diagnostic using the `me` GraphQL query.
+- Added non-network readiness status based on whether a token is configured.
 
 ### Amazon Creators API
 
@@ -55,6 +67,7 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - A rejected cached token (`HTTP 401`) is discarded, refreshed once, and the search is retried once.
 - Improved Amazon authentication/API error text.
 - Added an OAuth diagnostic showing the active credential version.
+- Added readiness status that distinguishes missing credentials, configured/not-yet-tested credentials, and a currently reusable cached OAuth token.
 
 ### Google Books
 
@@ -62,11 +75,13 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Retains bounded handling of HTTP 429 and quota-related HTTP 403 responses.
 - Retains `Retry-After` support and cooldown/backoff behaviour.
 - Added an API-key connection diagnostic.
+- Added readiness status that exposes missing API-key state and active cooldown time without generating a network request.
 
 ### Open Library
 
 - Added a versioned User-Agent.
 - Added a connection diagnostic.
+- Added credential-free readiness status.
 
 ### Matching and metadata discovery
 
@@ -81,6 +96,8 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Added explicit **conflict safeguards** for contradictory ISBN, author, language, series, and publication-year evidence.
 - A candidate carrying a valid ISBN that conflicts with the user's/query EPUB ISBN is capped far below the default automatic batch threshold even when title and author are exact.
 - Strong author, language, series, and year conflicts reduce confidence instead of being silently ignored.
+- Added evidence-aware confidence classes: **Exact**, **Strong**, **Possible**, and **Weak**. Exact ISBN matches are Exact; contradictory ISBNs are always Weak; strong confidence is only assigned when the score is high and hard-conflict evidence is absent.
+- Confidence is shown in match results/previews and persisted in per-book provenance.
 - Exact ISBN remains authoritative when it matches.
 - Saved book-link provenance now records the Metadata Scraper plugin version.
 
@@ -95,6 +112,9 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
   - cross-provider deduplication
   - malformed provider-result isolation
   - ISBN/author/language/series conflict safeguards
+  - evidence-aware confidence classification
+  - provider readiness/cooldown status
+  - presence of per-book field selection and batch-safety UI controls
   - Hardcover Bearer normalization
   - Hardcover Typesense result normalization
   - Amazon credential-version token endpoints and token caching
@@ -126,7 +146,6 @@ The following larger ideas remain outside this reliability branch for now:
 
 - multi-revision metadata history beyond the current one-step undo snapshot
 - direct `Refresh metadata` using a previously saved provider record
-- per-apply field selection beyond the existing global field controls
 - full batch preview / interactive review of borderline batch matches
 - richer per-book batch report
 - updater support for explicitly removed files/settings migrations
