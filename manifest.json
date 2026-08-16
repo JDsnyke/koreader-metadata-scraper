@@ -3,26 +3,26 @@
   "repo": {
     "id": "jdsnyke-metadata-scraper",
     "name": "JDsnyke KOReader Plugins",
-    "url": "https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/main/"
+    "url": "https://jdsnyke.github.io/koreader-metadata-scraper/"
   },
   "packages": [
     {
       "id": "metadata-scraper",
       "name": "Metadata Scraper",
-      "version": "0.1.4",
+      "version": "0.1.3",
       "description": "Fetch and safely apply EPUB metadata and covers from Hardcover, Amazon Creators API, Google Books, and Open Library without rewriting EPUB files.",
       "author": "JDsnyke",
       "category": "utility",
-      "platforms": [
-        "koreader"
-      ],
+      "platforms": ["koreader"],
       "dependencies": [],
       "source": "https://github.com/JDsnyke/koreader-metadata-scraper",
       "source_type": "release",
-      "source_asset": "metadata_scraper_koreader_v0.1.4.zip",
+      "source_asset": "metadata_scraper_koreader_v0.1.3.zip",
       "plugin_module": "metadata_scraper",
-      "readme_url": "https://raw.githubusercontent.com/JDsnyke/koreader-metadata-scraper/main/README.md",
-      "size": "45866"
+      "readme_url": "packages/metadata-scraper/README.md",
+      "versions_url": "packages/metadata-scraper/versions.json",
+      "published_at": "2026-08-16T10:55:34Z",
+      "size": "44803"
     }
   ]
 }
