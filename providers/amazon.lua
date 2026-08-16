@@ -82,6 +82,20 @@ local function get_token(settings, force_refresh)
     return token_cache.value, nil, version, inferred
 end
 
+function P.status(settings)
+    settings = settings or {}
+    if not U.nonempty(settings.amazon_client_id) or not U.nonempty(settings.amazon_client_secret)
+            or not U.nonempty(settings.amazon_partner_tag) then
+        return "credentials missing", "missing"
+    end
+    local endpoint = token_endpoint(settings)
+    local key = cache_key(settings, endpoint)
+    if token_cache.value and token_cache.key == key and token_cache.expiry > os.time() + 90 then
+        return "ready · token cached", "ready"
+    end
+    return "configured · not tested", "configured"
+end
+
 local function display_value(v)
     if type(v) ~= "table" then return v end
     return v.displayValue or v.DisplayValue or v.value
