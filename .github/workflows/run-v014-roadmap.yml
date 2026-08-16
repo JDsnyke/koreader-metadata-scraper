@@ -6,6 +6,7 @@ on:
       - agent/v0.1.4-navigation-zenpm
     paths:
       - scripts/apply_v014_roadmap.py
+      - .github/workflows/run-v014-roadmap.yml
 
 jobs:
   patch:
