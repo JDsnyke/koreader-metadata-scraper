@@ -29,5 +29,6 @@ jobs:
           lua5.1 tests/hardening.lua
           lua5.1 tests/diagnostics.lua
           lua5.1 tests/matcher_safety.lua
+          lua5.1 tests/edition_batch.lua
           lua5.1 tests/updater_integrity.lua
           lua5.1 tests/lifecycle.lua
