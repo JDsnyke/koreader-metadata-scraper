@@ -140,10 +140,56 @@ local function write_metadata(file, original_props, result, fields, replace_exis
     return ok
 end
 
+local function restore_override(current_path, original_path, original_data)
+    if original_path then
+        if original_data == nil then return nil, "original override bytes are unavailable" end
+        if current_path and current_path ~= original_path then
+            local removed = os.remove(current_path)
+            if not removed then return nil, "could not remove partial override " .. tostring(current_path) end
+        end
+        if not write_file(original_path, original_data) then
+            return nil, "could not restore original override " .. tostring(original_path)
+        end
+    elseif current_path then
+        local removed = os.remove(current_path)
+        if not removed then return nil, "could not remove newly-created partial override " .. tostring(current_path) end
+    end
+    return true
+end
+
 function M.write(file, original_props, result, fields, replace_existing)
-    local ok, written = pcall(write_metadata, file, original_props, result, fields, replace_existing)
-    if not ok then return nil, tostring(written) end
-    return written
+    -- Keep a lightweight transaction backup even though the higher-level Apply path
+    -- also creates a user-facing undo snapshot. This protects callers from a KOReader
+    -- exception or false return that occurs after a sidecar has already been touched.
+    local before_path
+    local before_data
+    local capture_ok, capture_err = pcall(function()
+        before_path = DocSettings:findCustomMetadataFile(file)
+        if before_path then
+            before_data = read_file(before_path)
+            if before_data == nil then error("Could not back up existing custom metadata before write") end
+        end
+    end)
+    if not capture_ok then return nil, tostring(capture_err) end
+
+    local call_ok, written = pcall(write_metadata, file, original_props, result, fields, replace_existing)
+    if call_ok and written then return true end
+
+    local write_err = call_ok and "KOReader could not flush custom metadata" or tostring(written)
+    local current_path
+    local find_ok, find_err = pcall(function() current_path = DocSettings:findCustomMetadataFile(file) end)
+    if not find_ok then
+        return nil, write_err .. "; rollback could not inspect current metadata: " .. tostring(find_err)
+    end
+
+    local restored, restore_err = restore_override(current_path, before_path, before_data)
+    if not restored then
+        return nil, write_err .. "; rollback failed: " .. tostring(restore_err)
+    end
+
+    UIManager:broadcastEvent(Event:new("InvalidateMetadataCache", file))
+    UIManager:broadcastEvent(Event:new("BookMetadataChanged"))
+    return nil, write_err .. "; previous metadata restored"
 end
 
 local function write_cover(file, image_file)
@@ -165,14 +211,17 @@ local function write_cover(file, image_file)
         if not removed then return nil, "Could not remove the existing custom cover" end
     end
 
-    local ok = DocSettings:flushCustomCover(file, image_file)
-    if not ok then
+    local call_ok, installed = pcall(function()
+        return DocSettings:flushCustomCover(file, image_file)
+    end)
+    if not call_ok or not installed then
+        local original_error = call_ok and "KOReader could not install the custom cover" or tostring(installed)
         if existing and backup then
             if not write_file(existing, backup) then
-                return nil, "Cover replacement failed and the previous cover could not be restored"
+                return nil, original_error .. "; previous cover could not be restored"
             end
         end
-        return nil, "KOReader could not install the custom cover"
+        return nil, original_error .. (existing and "; previous cover restored" or "")
     end
 
     UIManager:broadcastEvent(Event:new("InvalidateMetadataCache", file))
