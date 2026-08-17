@@ -1,5 +1,5 @@
 local M = {
-    SCHEMA_VERSION = 2,
+    SCHEMA_VERSION = 3,
 }
 
 local SECRET_KEYS = {
@@ -13,6 +13,7 @@ local SECRET_KEYS = {
 local RUNTIME_STATE_KEYS = {
     book_links = true,
     undo_records = true,
+    history_records = true,
     provider_health = true,
     last_update_check = true,
 }
@@ -57,8 +58,14 @@ function M.migrate(saved)
         schema = 2
     end
 
+    if schema < 3 then
+        if type(out.history_records) ~= "table" then out.history_records = {} end
+        schema = 3
+    end
+
     out.update_channel = normalize_channel(out.update_channel)
     if type(out.provider_health) ~= "table" then out.provider_health = {} end
+    if type(out.history_records) ~= "table" then out.history_records = {} end
     out.settings_schema_version = M.SCHEMA_VERSION
     return out, original
 end

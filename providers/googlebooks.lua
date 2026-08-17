@@ -34,16 +34,42 @@ local function retry_after_seconds(res, reason)
     return math.min(30 * (2 ^ (backoff_step - 1)), 900)
 end
 
-local function request(q, settings, max_results)
+local function request_url(url, settings)
     if not U.nonempty(settings.google_api_key) then
         return nil, "Google Books API key required. Add one under Provider accounts."
     end
-    local url = "https://www.googleapis.com/books/v1/volumes?q=" .. U.urlencode(q)
-        .. "&printType=books&maxResults=" .. tostring(max_results or 8)
-        .. "&key=" .. U.urlencode(settings.google_api_key)
+    local separator = url:find("?", 1, true) and "&" or "?"
+    url = url .. separator .. "key=" .. U.urlencode(settings.google_api_key)
     return HTTP.json("GET", url, {
         ["User-Agent"] = Version.user_agent(),
     })
+end
+
+local function request(q, settings, max_results)
+    local url = "https://www.googleapis.com/books/v1/volumes?q=" .. U.urlencode(q)
+        .. "&printType=books&maxResults=" .. tostring(max_results or 8)
+    return request_url(url, settings)
+end
+
+local function normalize_item(item)
+    if type(item) ~= "table" then return nil end
+    local v = item.volumeInfo or {}
+    local ids = {}
+    for _, ident in ipairs(v.industryIdentifiers or {}) do table.insert(ids, ident.identifier) end
+    local isbn10, isbn13 = U.find_isbns(ids)
+    local images = v.imageLinks or {}
+    local cover = images.extraLarge or images.large or images.medium or images.thumbnail or images.smallThumbnail
+    if cover then cover = cover:gsub("^http://", "https://") end
+    return {
+        source = P.id, source_label = P.label, id = item.id,
+        title = v.title, subtitle = v.subtitle,
+        authors = v.authors or {}, authors_text = U.join(v.authors, "\n"),
+        publisher = v.publisher, published_date = v.publishedDate,
+        description = v.description, language = v.language,
+        keywords = v.categories or {}, keywords_text = U.join(v.categories, "\n"),
+        isbn10 = isbn10, isbn13 = isbn13, cover_url = cover,
+        raw = item,
+    }
 end
 
 local function handle_rate_limit(res)
@@ -93,25 +119,33 @@ function P.search(query, settings)
 
     local out = {}
     for _, item in ipairs((res.json and res.json.items) or {}) do
-        local v = item.volumeInfo or {}
-        local ids = {}
-        for _, ident in ipairs(v.industryIdentifiers or {}) do table.insert(ids, ident.identifier) end
-        local isbn10, isbn13 = U.find_isbns(ids)
-        local images = v.imageLinks or {}
-        local cover = images.extraLarge or images.large or images.medium or images.thumbnail or images.smallThumbnail
-        if cover then cover = cover:gsub("^http://", "https://") end
-        table.insert(out, {
-            source = P.id, source_label = P.label, id = item.id,
-            title = v.title, subtitle = v.subtitle,
-            authors = v.authors or {}, authors_text = U.join(v.authors, "\n"),
-            publisher = v.publisher, published_date = v.publishedDate,
-            description = v.description, language = v.language,
-            keywords = v.categories or {}, keywords_text = U.join(v.categories, "\n"),
-            isbn10 = isbn10, isbn13 = isbn13, cover_url = cover,
-            raw = item,
-        })
+        local normalized = normalize_item(item)
+        if normalized then table.insert(out, normalized) end
     end
     return out
+end
+
+function P.get_by_id(id, settings)
+    id = U.trim(tostring(id or ""))
+    if id == "" then return nil, "Saved Google Books volume ID is missing" end
+    local now = os.time()
+    if now < cooldown_until then
+        return nil, "Rate limited by Google Books; retry in about " .. tostring(math.max(1, cooldown_until - now)) .. " seconds"
+    end
+    local res, err = request_url("https://www.googleapis.com/books/v1/volumes/" .. U.urlencode(id), settings)
+    if not res then return nil, err end
+    local rate_error = handle_rate_limit(res)
+    if rate_error then return nil, rate_error end
+    if res.code == 404 then return nil, "Saved Google Books record no longer exists" end
+    if res.code ~= 200 then
+        local detail = error_details(res)
+        return nil, detail
+    end
+    backoff_step = 0
+    cooldown_until = 0
+    local record = normalize_item(res.json)
+    if not record or tostring(record.id or "") ~= id then return nil, "Google Books returned an unexpected saved record" end
+    return record
 end
 
 function P.test(settings)

@@ -4,6 +4,14 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 
 ## [0.1.4] - Unreleased
 
+### Expedited roadmap foundations
+
+- Added structured positive/negative/cap score components and a human-readable numeric score breakdown in match preview and saved provenance.
+- Added an interactive, write-free batch review screen where ready matches can be individually deselected before the second Apply confirmation.
+- Expanded one-step Undo into a bounded revision chain: up to four older snapshots per book and 30 older snapshots globally, with repeated Undo walking backward through retained revisions.
+- Added exact saved-record refresh capability for Google Books volume IDs, including **Refresh saved metadata** and **Refresh saved cover only** with Current → Proposed review. A missing/stale saved ID never silently falls back to a fuzzy replacement.
+- Hardened additional user-visible updater/refresh error paths through diagnostics redaction.
+
 ### Navigation and UX
 
 - Keep the **Metadata Scraper** KOReader submenu open underneath child dialogs so closing search forms, account dialogs, diagnostics, About, update checks, file/folder pickers, and other plugin windows returns to Metadata Scraper instead of the reader/file manager.

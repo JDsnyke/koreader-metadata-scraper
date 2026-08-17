@@ -15,6 +15,15 @@ local function add_reason(reasons, label)
     table.insert(reasons, label)
 end
 
+local function add_component(components, label, delta, cap, detail)
+    table.insert(components, {
+        label = label,
+        delta = delta,
+        cap = cap,
+        detail = detail,
+    })
+end
+
 local function reason_set(reasons)
     local out = {}
     for _, reason in ipairs(reasons or {}) do out[reason] = true end
@@ -55,6 +64,7 @@ function M.score(query, r)
     r = type(r) == "table" and r or {}
 
     local reasons = {}
+    local components = {}
     local query_isbn = U.canonical_isbn(query.isbn)
     local result_isbn = canonical_result_isbn(r)
     local qkind, rkind = edition_conflict(query, r)
@@ -62,17 +72,28 @@ function M.score(query, r)
 
     if isbn_matches(query, r) then
         add_reason(reasons, "ISBN exact")
+        add_component(components, "ISBN exact", 100)
         if has_format_conflict then
             add_reason(reasons, "format conflict")
-            if qkind == "ebook" and rkind == "audiobook" then return 35, reasons end
-            return 65, reasons
+            if qkind == "ebook" and rkind == "audiobook" then
+                add_component(components, "format conflict", nil, 35, qkind .. " vs " .. rkind)
+                return 35, reasons, components
+            end
+            add_component(components, "format conflict", nil, 65, qkind .. " vs " .. rkind)
+            return 65, reasons, components
         end
-        if qkind and rkind and qkind == rkind then add_reason(reasons, "format match") end
-        return 100, reasons
+        if qkind and rkind and qkind == rkind then
+            add_reason(reasons, "format match")
+            add_component(components, "format match", 0, nil, qkind)
+        end
+        return 100, reasons, components
     end
 
     local isbn_conflict = query_isbn and result_isbn and query_isbn ~= result_isbn
-    if isbn_conflict then add_reason(reasons, "ISBN conflict") end
+    if isbn_conflict then
+        add_reason(reasons, "ISBN conflict")
+        add_component(components, "ISBN conflict", nil, 35)
+    end
 
     local qtitle = U.normalize(query.title)
     local rtitle = U.normalize(r.title)
@@ -81,12 +102,16 @@ function M.score(query, r)
         if qtitle == rtitle then
             score = score + 72
             add_reason(reasons, "title exact")
+            add_component(components, "title exact", 72)
         elseif qtitle:find(rtitle, 1, true) or rtitle:find(qtitle, 1, true) then
             score = score + 60
             add_reason(reasons, "title close")
+            add_component(components, "title close", 60)
         else
             local similarity = U.token_similarity(qtitle, rtitle)
-            score = score + math.floor(similarity * 62)
+            local points = math.floor(similarity * 62)
+            score = score + points
+            if points ~= 0 then add_component(components, "title similarity", points, nil, string.format("%.0f%%", similarity * 100)) end
             if similarity >= 0.75 then add_reason(reasons, "title similar") end
         end
     end
@@ -98,15 +123,21 @@ function M.score(query, r)
         if similarity >= 0.999 then
             score = score + 23
             add_reason(reasons, "author exact")
+            add_component(components, "author exact", 23)
         elseif qa:find(ra, 1, true) or ra:find(qa, 1, true) or similarity >= 0.8 then
             score = score + 20
             add_reason(reasons, "author close")
+            add_component(components, "author close", 20)
         else
-            score = score + math.floor(similarity * 20)
+            local points = math.floor(similarity * 20)
+            score = score + points
+            if points ~= 0 then add_component(components, "author similarity", points, nil, string.format("%.0f%%", similarity * 100)) end
             if similarity >= 0.6 then
                 add_reason(reasons, "author similar")
             elseif similarity < 0.2 then
+                local before = score
                 score = math.max(0, score - 25)
+                add_component(components, "author conflict", score - before)
                 add_reason(reasons, "author conflict")
             end
         end
@@ -118,9 +149,12 @@ function M.score(query, r)
         if qlang and rlang and qlang == rlang then
             score = score + 3
             add_reason(reasons, "language")
+            add_component(components, "language", 3)
         elseif qlang and rlang and qlang ~= rlang then
+            local before = score
             score = math.max(0, score - 12)
             add_reason(reasons, "language conflict")
+            add_component(components, "language conflict", score - before, nil, qlang .. " vs " .. rlang)
         end
     end
 
@@ -130,14 +164,18 @@ function M.score(query, r)
         if qseries == rseries then
             score = score + 4
             add_reason(reasons, "series exact")
+            add_component(components, "series exact", 4)
         else
             local similarity = U.token_similarity(qseries, rseries)
             if similarity >= 0.75 then
                 score = score + 2
                 add_reason(reasons, "series similar")
+                add_component(components, "series similar", 2)
             elseif similarity < 0.25 then
+                local before = score
                 score = math.max(0, score - 8)
                 add_reason(reasons, "series conflict")
+                add_component(components, "series conflict", score - before)
             end
         end
     end
@@ -148,11 +186,16 @@ function M.score(query, r)
         if qyear == ryear then
             score = score + 2
             add_reason(reasons, "year")
+            add_component(components, "year", 2)
         elseif math.abs(qyear - ryear) > 5 then
+            local before = score
             score = math.max(0, score - 5)
             add_reason(reasons, "year conflict")
+            add_component(components, "year conflict", score - before)
         elseif math.abs(qyear - ryear) > 2 then
+            local before = score
             score = math.max(0, score - 2)
+            add_component(components, "year difference", score - before)
         end
     end
 
@@ -160,12 +203,16 @@ function M.score(query, r)
         if qkind == rkind then
             score = score + 3
             add_reason(reasons, "format match")
+            add_component(components, "format match", 3, nil, qkind)
         else
             add_reason(reasons, "format conflict")
+            local before = score
             if qkind == "ebook" and rkind == "audiobook" then
                 score = math.min(math.max(0, score - 45), 35)
+                add_component(components, "format conflict", score - before, 35, qkind .. " vs " .. rkind)
             else
                 score = math.min(math.max(0, score - 25), 65)
+                add_component(components, "format conflict", score - before, 65, qkind .. " vs " .. rkind)
             end
         end
     end
@@ -175,7 +222,11 @@ function M.score(query, r)
     -- default automatic batch threshold.
     if isbn_conflict then score = math.min(score, 35) end
 
-    return math.min(99, score), reasons
+    if score > 99 then
+        add_component(components, "non-ISBN maximum", nil, 99)
+        score = 99
+    end
+    return score, reasons, components
 end
 
 local function dedupe_key(r)
@@ -240,10 +291,11 @@ local function rank_sorter(source_priority)
 end
 
 local function rescore(query, r)
-    local ok, score, reasons = pcall(M.score, query, r)
+    local ok, score, reasons, components = pcall(M.score, query, r)
     if not ok or type(score) ~= "number" then return false end
     r.score = score
     r.match_reasons = type(reasons) == "table" and reasons or {}
+    r.score_components = type(components) == "table" and components or {}
     r.confidence = M.confidence(score, r.match_reasons)
     r.media_kind = r.media_kind or result_media_kind(r)
     return true

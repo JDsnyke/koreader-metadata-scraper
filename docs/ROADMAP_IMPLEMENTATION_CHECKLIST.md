@@ -265,7 +265,7 @@ Device gate before stable Release publication:
 
 - [x] Provider-specific minimum request intervals for larger batches.
 - [ ] Honor Retry-After/cooldown consistently.
-- [ ] Continue healthy providers while another is cooling down.
+- [x] Continue healthy providers while another is cooling down — provider failures/cooldowns remain isolated per provider and do not abort the search loop.
 - [x] Optional persisted last health/test state.
 
 ## C. Persistent diagnostics — #46/#47
@@ -281,7 +281,7 @@ Device gate before stable Release publication:
 
 - [x] Mask saved credential identifiers where practical.
 - [x] Validate Amazon credential-version input before save.
-- [ ] Never echo secret values in errors.
+- [x] Never intentionally echo configured secret values in provider/updater refresh errors; user-visible failure paths use diagnostics redaction.
 
 ## E. Settings backup/reset — #29
 
@@ -311,35 +311,35 @@ Device gate before stable Release publication:
 
 ## B. Exact-record refresh — #1
 
-- [ ] Provider `get_by_id`/detail capability where feasible.
+- [~] Provider `get_by_id`/detail capability where feasible — Google Books exact volume-ID refresh expedited to v0.1.4; other providers remain future work.
 - [ ] Refresh saved provider record before fuzzy search.
-- [ ] Stale provider ID offers new search rather than silently selecting another edition.
-- [ ] **Refresh metadata**.
-- [ ] **Refresh cover only**.
-- [ ] Current→Proposed preview before refresh write.
+- [x] Stale supported provider ID reports failure and directs the user to a new search instead of silently selecting another edition — expedited to v0.1.4.
+- [~] **Refresh metadata** — exact saved Google Books records supported in v0.1.4; broader providers remain v0.2.0.
+- [~] **Refresh cover only** — exact saved Google Books records supported in v0.1.4; broader providers remain v0.2.0.
+- [x] Current→Proposed preview before supported exact-record refresh write — expedited to v0.1.4.
 
 ## C. Explainable score components — #42/#44
 
-- [ ] Explicit positive/negative component structure.
-- [ ] Human-readable numeric breakdown.
+- [x] Explicit positive/negative component structure — expedited to v0.1.4.
+- [x] Human-readable numeric breakdown in match preview/provenance — expedited to v0.1.4.
 - [ ] Ambiguous-title fixtures.
 - [ ] Hard conflicts always override misleading aggregate score/class.
 
 ## D. Interactive batch review — deeper #14/#15
 
 - [ ] Keep discovery phase write-free.
-- [ ] List proposed entries individually.
-- [ ] Allow deselecting a ready row.
+- [x] List proposed ready entries individually — expedited to v0.1.4.
+- [x] Allow deselecting a ready row before Apply — expedited to v0.1.4.
 - [ ] Borderline Apply/Skip/Search again/Stop flow.
-- [ ] Cancel review with zero writes.
-- [ ] Preserve two-phase summary as simple/default path.
+- [x] Cancel review with zero writes — expedited to v0.1.4.
+- [x] Preserve two-phase summary as simple/default path — expedited to v0.1.4.
 
 ## E. Resume/report/history — #23/#16/#13
 
 - [ ] Persist batch identity/completed entries safely.
 - [ ] Recover after restart/network loss without duplicate writes.
 - [ ] Save sanitized per-book batch report.
-- [ ] Bounded multi-revision metadata history beyond one-step undo.
+- [x] Bounded multi-revision metadata history beyond one-step undo — expedited to v0.1.4; repeated Undo walks backward through retained revisions.
 
 ## F. Recursive batch — #17
 
