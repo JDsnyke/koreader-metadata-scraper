@@ -22,6 +22,8 @@ jobs:
         run: python3 scripts/apply_v014_expansion.py
       - name: Refresh updater hashes
         run: python3 scripts/generate_update_manifest.py
+      - name: Keep CI workflow unchanged in bot push
+        run: git checkout -- .github/workflows/lua-checks.yml
       - name: Validate patch
         run: |
           python3 -m py_compile scripts/*.py
@@ -30,7 +32,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git rm scripts/apply_v014_expansion.py .github/workflows/run-v014-expansion.yml
-          git add lib/matcher.lua lib/settings.lua providers/googlebooks.lua main.lua tests/v014_expansion.lua .github/workflows/lua-checks.yml docs/ROADMAP_IMPLEMENTATION_CHECKLIST.md CHANGELOG.md README.md update.json
+          git rm scripts/apply_v014_expansion.py
+          git add lib/matcher.lua lib/settings.lua providers/googlebooks.lua main.lua tests/v014_expansion.lua docs/ROADMAP_IMPLEMENTATION_CHECKLIST.md CHANGELOG.md README.md update.json
           git commit -m "Expand v0.1.4 roadmap foundations"
           git push origin HEAD:agent/v0.1.4-navigation-zenpm
