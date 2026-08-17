@@ -64,6 +64,7 @@ jobs:
           lua5.1 tests/lifecycle.lua
           lua5.1 tests/navigation.lua
           lua5.1 tests/v014_roadmap.lua
+          lua5.1 tests/v014_expansion.lua
 
       - name: Upload release candidate
         uses: actions/upload-artifact@v4
