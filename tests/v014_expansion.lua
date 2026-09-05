@@ -99,5 +99,15 @@ check("refresh UI never silently falls back to fuzzy search", function()
     truthy(block:find("will not silently substitute a different edition", 1, true))
 end)
 
+check("result selection preview is guarded and score evidence is not rendered inline", function()
+    local data = read_file("main.lua")
+    truthy(data:find("local ok, err = pcall(self.showPreview, self, file, raw, query, r)", 1, true), "result preview callback is not protected")
+    local start = assert(data:find("function MetadataScraper:showPreview", 1, true))
+    local finish = assert(data:find("function MetadataScraper:listEpubs", start, true))
+    local block = data:sub(start, finish - 1)
+    truthy(block:find('text = _("Match evidence…")', 1, true), "separate match evidence action missing")
+    truthy(not block:find('info(_("Score breakdown"), breakdown)', 1, true), "large score breakdown must not render inline in ButtonDialog")
+end)
+
 io.write(string.format("\n%d passed, %d failed\n", passed, failed))
 if failed > 0 then os.exit(1) end

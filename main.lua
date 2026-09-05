@@ -131,19 +131,26 @@ local function confidence_label(value)
     return labels[value] or tostring(value or _("Unknown"))
 end
 
-local function score_breakdown_text(components)
+local function score_breakdown_text(components, max_chars)
     local parts = {}
     for _, component in ipairs(type(components) == "table" and components or {}) do
-        local label = tostring(component.label or _("evidence"))
-        if component.delta ~= nil and tonumber(component.delta) ~= 0 then
-            local delta = tonumber(component.delta) or 0
-            label = label .. " " .. (delta > 0 and "+" or "") .. tostring(delta)
+        if type(component) == "table" then
+            local label = tostring(component.label or _("evidence"))
+            if component.delta ~= nil and tonumber(component.delta) ~= 0 then
+                local delta = tonumber(component.delta) or 0
+                label = label .. " " .. (delta > 0 and "+" or "") .. tostring(delta)
+            end
+            if component.cap ~= nil then label = label .. " ≤" .. tostring(component.cap) end
+            if component.detail and tostring(component.detail) ~= "" then label = label .. " (" .. tostring(component.detail) .. ")" end
+            table.insert(parts, label)
+        elseif component ~= nil then
+            table.insert(parts, tostring(component))
         end
-        if component.cap ~= nil then label = label .. " ≤" .. tostring(component.cap) end
-        if component.detail and tostring(component.detail) ~= "" then label = label .. " (" .. tostring(component.detail) .. ")" end
-        table.insert(parts, label)
     end
-    return table.concat(parts, "; ")
+    local text = table.concat(parts, "; ")
+    max_chars = tonumber(max_chars) or 480
+    if #text > max_chars then text = text:sub(1, math.max(1, max_chars - 1)) .. "…" end
+    return text
 end
 
 local function empty_field_selection()
@@ -982,7 +989,17 @@ function MetadataScraper:showResults(file, raw, query, results)
         text = text .. "\n" .. tostring(r.score or 0) .. "% " .. confidence_label(r.confidence) .. " · " .. secondary
         table.insert(rows, {{
             text = text, align = "left",
-            callback = function() UIManager:close(dialog); self:showPreview(file, raw, query, r) end,
+            callback = function()
+                UIManager:close(dialog)
+                local ok, err = pcall(self.showPreview, self, file, raw, query, r)
+                if not ok then
+                    local message = Diagnostics.redact(err or "Result preview failed", self.settings)
+                    Diagnostics.log("Result preview", message, self.settings, { operation = "preview", status = "error" })
+                    UIManager:show(InfoMessage:new{
+                        text = _("Could not open this metadata result safely.") .. "\n" .. tostring(message),
+                    })
+                end
+            end,
         }})
     end
     table.insert(rows, {{
@@ -1149,7 +1166,7 @@ function MetadataScraper:showLastMatchDetails(file)
     if link.match_reasons and #link.match_reasons > 0 then
         table.insert(lines, _("Match reasons") .. ": " .. U.join(link.match_reasons, ", "))
     end
-    local breakdown = score_breakdown_text(link.score_components)
+    local breakdown = score_breakdown_text(link.score_components, 220)
     if breakdown ~= "" then table.insert(lines, _("Score breakdown") .. ": " .. breakdown) end
     if link.updated_at then table.insert(lines, _("Matched") .. ": " .. tostring(link.updated_at)) end
     table.insert(lines, _("Plugin") .. ": " .. tostring(link.plugin_version or _("unknown")))
@@ -1472,11 +1489,20 @@ function MetadataScraper:showPreview(file, raw, query, r)
     info(_("Edition"), r.edition)
     info(_("Source"), (r.source_label or r.source) .. " · " .. tostring(r.score or 0) .. "%")
     info(_("Confidence"), confidence_label(r.confidence))
-    local breakdown = score_breakdown_text(r.score_components)
-    if breakdown ~= "" then info(_("Score breakdown"), breakdown) end
     if r.also_sources and #r.also_sources > 0 then info(_("Also found on"), U.join(r.also_sources, ", ")) end
     if r.match_reasons and #r.match_reasons > 0 then info(_("Match"), U.join(r.match_reasons, ", ")) end
     info(_("Cover"), r.cover_url and _("available") or _("not available"))
+    if type(r.score_components) == "table" and #r.score_components > 0 then
+        table.insert(rows, {{
+            text = _("Match evidence…"), align = "left",
+            callback = function()
+                local breakdown = score_breakdown_text(r.score_components, 1200)
+                UIManager:show(InfoMessage:new{
+                    text = _("Match evidence") .. "\n\n" .. (breakdown ~= "" and breakdown or _("No score evidence available.")),
+                })
+            end,
+        }})
+    end
 
     local changes, change_err = Writer.preview(file, raw, r, self.settings.fields, self.settings.replace_existing)
     if changes then

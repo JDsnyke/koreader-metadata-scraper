@@ -4,6 +4,12 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 
 ## [0.1.4] - Unreleased
 
+### Result preview stability
+
+- Fixed a Kindle/KOReader crash regression when selecting a metadata search result after numeric score-component rendering was added.
+- Moved detailed numeric score evidence out of the main result `ButtonDialog` into a bounded **Match evidence…** view.
+- Protected the result-selection preview callback so unexpected provider/detail rendering errors are logged and shown as a controlled message instead of escaping through KOReader UI.
+
 ### Expedited roadmap foundations
 
 - Added structured positive/negative/cap score components and a human-readable numeric score breakdown in match preview and saved provenance.
