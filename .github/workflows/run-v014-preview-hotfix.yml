@@ -1,0 +1,40 @@
+name: Run v0.1.4 result preview hotfix
+
+on:
+  push:
+    branches:
+      - agent/v0.1.4-navigation-zenpm
+    paths:
+      - scripts/apply_v014_preview_hotfix.py
+      - .github/workflows/run-v014-preview-hotfix.yml
+
+jobs:
+  patch:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/v0.1.4-navigation-zenpm
+          fetch-depth: 0
+      - name: Apply preview hotfix
+        run: python3 scripts/apply_v014_preview_hotfix.py
+      - name: Refresh updater hashes
+        run: python3 scripts/generate_update_manifest.py
+      - name: Validate patch
+        run: |
+          python3 -m py_compile scripts/*.py
+          git diff --check
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+          luac5.1 -p main.lua
+          lua5.1 tests/v014_expansion.lua
+      - name: Commit hotfix
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm scripts/apply_v014_preview_hotfix.py
+          git add main.lua tests/v014_expansion.lua CHANGELOG.md update.json
+          git commit -m "Fix result preview crash regression"
+          git push origin HEAD:agent/v0.1.4-navigation-zenpm
