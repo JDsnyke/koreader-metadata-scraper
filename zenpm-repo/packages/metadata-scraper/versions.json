@@ -1,6 +1,19 @@
 {
   "releases": [
     {
+      "tag_name": "v0.1.4",
+      "name": "Metadata Scraper for KOReader v0.1.4",
+      "prerelease": false,
+      "assets": [
+        {
+          "name": "metadata_scraper_koreader_v0.1.4.zip",
+          "url": "https://github.com/JDsnyke/koreader-metadata-scraper/releases/download/v0.1.4/metadata_scraper_koreader_v0.1.4.zip",
+          "size": 55757,
+          "digest": "sha256:23f9840d305c642e3ad503bcb2e56bf5a32a49bbaf09ae9b4e74614ff5eeab0c"
+        }
+      ]
+    },
+    {
       "tag_name": "v0.1.3",
       "name": "Metadata Scraper for KOReader v0.1.3",
       "prerelease": false,

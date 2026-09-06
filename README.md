@@ -6,9 +6,9 @@ A Kindle-friendly KOReader plugin for finding EPUB metadata and covers from **Ha
 
 > The built-in updater follows the repository's latest **published GitHub Release**, not arbitrary commits on `main`.
 
-## v0.1.4 development additions
+## v0.1.4
 
-The current v0.1.4 development branch also includes foundations pulled forward from the later roadmap: explainable numeric match-score components, an interactive batch review/deselect step, bounded multi-revision Undo history, and exact saved Google Books record refresh for metadata or cover-only updates. These remain unreleased until v0.1.4 is finalized.
+v0.1.4 expands reliability and metadata lifecycle support with safer result previews, explainable match scoring, interactive batch review, bounded multi-revision Undo history, exact saved Google Books refresh, provider cooldown handling, persistent diagnostics, settings migrations/tools, and ZenPM repository support.
 
 ## Highlights in v0.1.3
 

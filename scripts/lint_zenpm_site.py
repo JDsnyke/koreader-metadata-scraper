@@ -64,16 +64,20 @@ def main() -> int:
         fail("plugin_module must match metadata_scraper.koplugin")
         errors += 1
 
-    # Public catalog follows published stable releases only. The v0.1.4 branch
-    # must not publish its unreleased development ZIP through ZenPM.
-    if package.get("version") != "0.1.3":
-        fail("development Pages catalog must remain on published stable v0.1.3")
+    version = str(package.get("version") or "")
+    expected_tag = "v" + version
+    expected_asset = "metadata_scraper_koreader_v" + version + ".zip"
+    if not version:
+        fail("package.version is required")
         errors += 1
-    if package.get("source_asset") != "metadata_scraper_koreader_v0.1.3.zip":
-        fail("stable source_asset does not match the published v0.1.3 asset")
+    if package.get("source_asset") != expected_asset:
+        fail("stable source_asset does not match package.version")
         errors += 1
-    if package.get("size") != "44803":
-        fail("stable asset size must match GitHub release metadata (44803 bytes)")
+    try:
+        package_size = int(package.get("size"))
+    except (TypeError, ValueError):
+        package_size = -1
+        fail("package.size must be an integer string")
         errors += 1
 
     versions_path = SITE / package.get("versions_url", "")
@@ -85,22 +89,23 @@ def main() -> int:
     else:
         release = releases[0]
         assets = release.get("assets") or []
-        if release.get("tag_name") != "v0.1.3" or release.get("prerelease") is not False:
-            fail("first versions.json entry must be stable v0.1.3")
+        if release.get("tag_name") != expected_tag or release.get("prerelease") is not False:
+            fail("first versions.json entry must match the stable package version")
             errors += 1
         if len(assets) != 1:
-            fail("v0.1.3 versions entry must contain exactly one release asset")
+            fail("stable versions entry must contain exactly one release asset")
             errors += 1
         else:
             asset = assets[0]
-            if asset.get("name") != "metadata_scraper_koreader_v0.1.3.zip":
+            digest = str(asset.get("digest") or "")
+            if asset.get("name") != expected_asset:
                 fail("versions asset name mismatch")
                 errors += 1
-            if asset.get("size") != 44803:
+            if asset.get("size") != package_size:
                 fail("versions asset size mismatch")
                 errors += 1
-            if asset.get("digest") != "sha256:ccb18681158f80dd41af824b954b2fd2333995502b206295f3b60c00c9723a3a":
-                fail("versions asset digest mismatch")
+            if not (digest.startswith("sha256:") and len(digest) == 71):
+                fail("versions asset digest must be sha256:<64 hex>")
                 errors += 1
 
     readme_path = SITE / package.get("readme_url", "")
@@ -121,7 +126,7 @@ def main() -> int:
     if errors:
         print(f"ZenPM Pages lint failed with {errors} error(s).", file=sys.stderr)
         return 1
-    print("ZenPM Pages lint OK: static repository mirrors published stable v0.1.3.")
+    print("ZenPM Pages lint OK: static repository mirrors the configured stable release.")
     return 0
 
 
