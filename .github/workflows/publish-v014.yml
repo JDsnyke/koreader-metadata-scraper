@@ -1,0 +1,122 @@
+name: Publish v0.1.4
+
+on:
+  push:
+    branches:
+      - agent/v0.1.4-publish
+    paths:
+      - .github/workflows/publish-v014.yml
+
+jobs:
+  publish:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: 1d4be61f96139b625bd467779ce3d042118d5787
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: 1d4be61f96139b625bd467779ce3d042118d5787
+          fetch-depth: 0
+      - name: Validate release tree
+        run: |
+          python3 scripts/lint_release.py
+          python3 scripts/lint_zenpm_manifest.py
+          python3 scripts/lint_zenpm_site.py
+          python3 scripts/generate_update_manifest.py --check
+      - name: Build exact release asset
+        run: |
+          python3 scripts/build_release.py
+          EXPECTED=$(python3 - <<'PY'
+          import json
+          p=json.load(open('zenpm-repo/packages/metadata-scraper/versions.json'))
+          print(p['releases'][0]['assets'][0]['digest'].split(':',1)[1])
+          PY
+          )
+          ACTUAL=$(sha256sum dist/metadata_scraper_koreader_v0.1.4.zip | awk '{print $1}')
+          echo "Expected: $EXPECTED"
+          echo "Actual:   $ACTUAL"
+          test "$ACTUAL" = "$EXPECTED"
+          (cd dist && sha256sum -c metadata_scraper_koreader_v0.1.4.zip.sha256)
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          # Metadata Scraper for KOReader v0.1.4
+
+          v0.1.4 is a stability and metadata-lifecycle release focused on fixing the Kindle result-preview regression, strengthening batch safety, and expanding diagnostics, updater, history, and ZenPM support.
+
+          ## Highlights
+
+          ### Result preview crash fix
+          - Fixes the KOReader/Kindle crash that could occur after selecting a scraper result.
+          - Moves detailed score evidence to a bounded **Match evidence…** view.
+          - Protects preview construction and metadata comparison failures so malformed provider data produces a controlled error instead of crashing KOReader.
+
+          ### Safer matching and batch processing
+          - Adds structured positive/negative match-score evidence.
+          - Adds conflict-aware automatic batch eligibility.
+          - ISBN, format, author, language, and series conflicts can no longer be auto-applied simply because a raw score exceeds the selected threshold.
+          - High-scoring conflicted matches are separated as **Manual review required**.
+          - Adds interactive batch review and ready-row deselection before Apply.
+          - Batch discovery still performs zero metadata or cover writes.
+
+          ### Metadata history and refresh
+          - Adds bounded multi-revision Undo/history.
+          - Repeated Undo walks backward through retained revisions.
+          - Adds exact saved-record refresh for Google Books metadata and covers.
+          - A stale saved Google Books ID never silently falls back to a fuzzy match.
+
+          ### Provider and network hardening
+          - Adds consistent bounded numeric `Retry-After` handling for Google Books, Hardcover, Amazon Creators API, and Open Library.
+          - Provider-local cooldowns prevent repeated requests while a provider is rate-limiting.
+          - Healthy providers continue independently.
+          - Changing or resetting provider credentials clears stale token/cooldown runtime state.
+          - Amazon OAuth retains credential-version support and one-time HTTP 401 refresh.
+
+          ### Diagnostics and settings
+          - Persistent sanitized diagnostic logging with rotation.
+          - Richer non-secret runtime/device information in support bundles.
+          - Provider health history.
+          - Settings schema migrations and credential-free settings export.
+          - Separate matching, provider, diagnostics, and full-reset tools.
+          - Reset All now cleans current Undo and retained historical snapshots.
+
+          ### Updater
+          - Safe obsolete-file removals with rollback.
+          - Stable and Test/prerelease update channels.
+          - SHA-256 verification remains required for runtime payloads.
+
+          ### ZenPM
+          - Adds a ZenPM v1 repository manifest and GitHub Pages-compatible repository tree.
+          - Stable package metadata points at v0.1.4.
+          - Intended ZenPM repository URL: `https://jdsnyke.github.io/koreader-metadata-scraper/`
+
+          ## Installation
+          Extract `metadata_scraper_koreader_v0.1.4.zip` and copy `metadata_scraper.koplugin` to `koreader/plugins/`.
+
+          Restart KOReader completely after updating.
+
+          ## Compatibility
+          - KOReader 2026.07+
+          - EPUB metadata workflow
+          - Targeted at modern Kindle `kindlehf`, including Kindle Coloursoft
+
+          ## SHA-256
+          `metadata_scraper_koreader_v0.1.4.zip`
+
+          `23f9840d305c642e3ad503bcb2e56bf5a32a49bbaf09ae9b4e74614ff5eeab0c`
+          EOF
+      - name: Create tag and GitHub Release
+        run: |
+          if gh release view v0.1.4 >/dev/null 2>&1; then
+            echo "v0.1.4 release already exists; refusing to overwrite"
+            exit 1
+          fi
+          gh release create v0.1.4 \
+            --target "$TARGET_SHA" \
+            --title "Metadata Scraper for KOReader v0.1.4" \
+            --notes-file release-notes.md \
+            dist/metadata_scraper_koreader_v0.1.4.zip \
+            dist/metadata_scraper_koreader_v0.1.4.zip.sha256
