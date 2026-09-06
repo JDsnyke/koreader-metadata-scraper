@@ -27,8 +27,7 @@ end
 local function retry_after_seconds(res, reason)
     local headers = (res and res.headers) or {}
     local header = headers["retry-after"] or headers["Retry-After"]
-    local seconds = tonumber(header)
-    if seconds and seconds > 0 then return math.min(seconds, 3600) end
+    if header ~= nil then return U.retry_after_seconds(res, 30, 3600) end
     if reason == "dailyLimitExceeded" or reason == "quotaExceeded" then return 3600 end
     backoff_step = math.min(backoff_step + 1, 6)
     return math.min(30 * (2 ^ (backoff_step - 1)), 900)

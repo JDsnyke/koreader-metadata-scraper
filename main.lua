@@ -338,17 +338,30 @@ function MetadataScraper:installZenContextHook()
 end
 
 function MetadataScraper:getRawProps(file)
+    local doc
     local ok, raw, effective = pcall(function()
-        local doc = DocumentRegistry:hasProvider(file) and DocumentRegistry:openDocument(file)
+        if not DocumentRegistry:hasProvider(file) then return {}, {} end
+        doc = DocumentRegistry:openDocument(file)
         if not doc then return {}, {} end
         local loaded = true
         if doc.loadDocument then loaded = doc:loadDocument(false) end
         local props = loaded and (doc:getProps() or {}) or {}
-        doc:close()
         return props, BookInfo.extendProps(props, file)
     end)
+
+    -- Close outside the protected metadata-read body so getProps/extendProps
+    -- exceptions cannot leak an open document handle on long batch runs.
+    if doc and type(doc.close) == "function" then
+        local closed, close_err = pcall(doc.close, doc)
+        if not closed then
+            Diagnostics.log("KOReader document close", close_err or "Could not close document", self.settings, {
+                operation = "metadata-read", status = "error",
+            })
+        end
+    end
+
     if not ok then
-        Diagnostics.log("KOReader metadata", raw, self.settings)
+        Diagnostics.log("KOReader metadata", raw, self.settings, { operation = "metadata-read", status = "error" })
         return {}, {}
     end
     return raw or {}, effective or {}
@@ -633,6 +646,13 @@ function MetadataScraper:resetAllSettings()
             for _, record in pairs(self.settings.undo_records or {}) do
                 Writer.discard_snapshot(record.snapshot or record)
             end
+            for _, records in pairs(self.settings.history_records or {}) do
+                if type(records) == "table" then
+                    for _, record in ipairs(records) do
+                        Writer.discard_snapshot(record.snapshot or record)
+                    end
+                end
+            end
             Diagnostics.clear()
             self.settings = clone_defaults()
             if PROVIDERS.amazon.reset_token_cache then PROVIDERS.amazon.reset_token_cache() end
@@ -820,15 +840,38 @@ function MetadataScraper:testProviders()
     end)
 end
 
+local function safe_runtime_diagnostics()
+    local info = {
+        lua = _VERSION or "unknown",
+        plugin_root = PLUGIN_ROOT,
+        target = "KOReader 2026.07+",
+    }
+    if type(jit) == "table" then
+        info.luajit = jit.version
+        info.runtime_os = jit.os
+        info.runtime_arch = jit.arch
+    end
+    local ok_device, Device = pcall(require, "device")
+    if ok_device and type(Device) == "table" then
+        local model = Device.model or Device.device_model
+        if type(model) == "string" and model ~= "" then info.device_model = model end
+        if type(Device.isKindle) == "function" then
+            local ok_kindle, is_kindle = pcall(Device.isKindle, Device)
+            if ok_kindle then info.device_family = is_kindle and "Kindle" or "non-Kindle" end
+        end
+    end
+    local ok_version, koreader_version = pcall(require, "version")
+    if ok_version and type(koreader_version) == "string" then info.koreader_version = koreader_version end
+    return info
+end
+
 function MetadataScraper:saveSupportDiagnostics()
     local cache_dir = DataStorage:getDataDir() .. "/cache/metadata_scraper"
     util.makePath(cache_dir)
     local filepath = cache_dir .. "/support_diagnostics.txt"
-    local ok, err = Diagnostics.write_bundle(filepath, self.settings, {
-        plugin_root = PLUGIN_ROOT,
-        settings_file = self.settings_file,
-        target = "KOReader 2026.07+",
-    })
+    local runtime = safe_runtime_diagnostics()
+    runtime.settings_file = self.settings_file
+    local ok, err = Diagnostics.write_bundle(filepath, self.settings, runtime)
     if ok then
         UIManager:show(InfoMessage:new{
             text = _("Sanitized support diagnostics saved to:") .. "\n" .. filepath
@@ -976,10 +1019,10 @@ function MetadataScraper:showResults(file, raw, query, results)
     local rows = {}
     local max = math.min(6, #results)
     for i = 1, max do
-        local r = results[i]
+        local r = type(results[i]) == "table" and results[i] or {}
         local author = U.join(r.authors, ", ", 2)
-        local secondary = r.source_label or r.source
-        if r.also_sources and #r.also_sources > 0 then
+        local secondary = tostring(r.source_label or r.source or _("unknown source"))
+        if type(r.also_sources) == "table" and #r.also_sources > 0 then
             secondary = secondary .. " +" .. tostring(#r.also_sources)
         end
         if r.published_date then secondary = secondary .. " · " .. tostring(r.published_date) end
@@ -1095,7 +1138,7 @@ function MetadataScraper:recordLink(file, r, query, changes, cover_ok)
     local written_fields = {}
     for _, change in ipairs(changes or {}) do table.insert(written_fields, change.key) end
     self.settings.book_links[file] = {
-        provenance_version = 1,
+        provenance_version = 2,
         source = r.source,
         source_label = r.source_label,
         id = r.id,
@@ -1229,7 +1272,12 @@ end
 function MetadataScraper:showRefreshPreview(file, raw, query, result, cover_only)
     local dialog
     local fields = cover_only and empty_field_selection() or self.settings.fields
-    local changes, preview_err = Writer.preview(file, raw, result, fields, self.settings.replace_existing)
+    local preview_ok, changes, preview_err = pcall(Writer.preview, file, raw, result, fields, self.settings.replace_existing)
+    if not preview_ok then
+        preview_err = Diagnostics.redact(changes or "Refresh preview failed", self.settings)
+        changes = nil
+        Diagnostics.log("Refresh preview", preview_err, self.settings, { operation = "refresh-preview", status = "error" })
+    end
     local rows = {
         {{ text = _("Exact saved provider record") .. ": " .. tostring(result.source_label or result.source), align = "left", enabled = false }},
     }
@@ -1480,14 +1528,15 @@ function MetadataScraper:showPreview(file, raw, query, r)
             table.insert(rows, {{ text = label .. ": " .. tostring(value), align = "left", enabled = false }})
         end
     end
+    r = type(r) == "table" and r or {}
     info(_("Author"), U.join(r.authors, ", "))
-    if r.series then info(_("Series"), r.series .. (r.series_index and (" #" .. tostring(r.series_index)) or "")) end
+    if r.series then info(_("Series"), tostring(r.series) .. (r.series_index and (" #" .. tostring(r.series_index)) or "")) end
     info(_("Published"), r.published_date)
     info(_("Language"), r.language)
     info("ISBN-13", r.isbn13); info("ISBN-10", r.isbn10)
     info(_("Format"), r.format or r.binding or r.media_kind)
     info(_("Edition"), r.edition)
-    info(_("Source"), (r.source_label or r.source) .. " · " .. tostring(r.score or 0) .. "%")
+    info(_("Source"), tostring(r.source_label or r.source or _("unknown source")) .. " · " .. tostring(r.score or 0) .. "%")
     info(_("Confidence"), confidence_label(r.confidence))
     if r.also_sources and #r.also_sources > 0 then info(_("Also found on"), U.join(r.also_sources, ", ")) end
     if r.match_reasons and #r.match_reasons > 0 then info(_("Match"), U.join(r.match_reasons, ", ")) end
@@ -1504,7 +1553,12 @@ function MetadataScraper:showPreview(file, raw, query, r)
         }})
     end
 
-    local changes, change_err = Writer.preview(file, raw, r, self.settings.fields, self.settings.replace_existing)
+    local preview_ok, changes, change_err = pcall(Writer.preview, file, raw, r, self.settings.fields, self.settings.replace_existing)
+    if not preview_ok then
+        change_err = Diagnostics.redact(changes or "Metadata preview failed", self.settings)
+        changes = nil
+        Diagnostics.log("Result preview", change_err, self.settings, { operation = "preview", status = "error" })
+    end
     if changes then
         if #changes == 0 then
             info(_("Text changes"), _("none with current field/write-mode settings"))

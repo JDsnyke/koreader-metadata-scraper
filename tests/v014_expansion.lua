@@ -109,5 +109,74 @@ check("result selection preview is guarded and score evidence is not rendered in
     truthy(not block:find('info(_("Score breakdown"), breakdown)', 1, true), "large score breakdown must not render inline in ButtonDialog")
 end)
 
+
+check("metadata document handles close even when property reads throw", function()
+    local data = read_file("main.lua")
+    local start = assert(data:find("function MetadataScraper:getRawProps", 1, true))
+    local finish = assert(data:find("function MetadataScraper:getCurrentFile", start, true))
+    local block = data:sub(start, finish - 1)
+    truthy(block:find("local doc", 1, true))
+    truthy(block:find("pcall(doc.close, doc)", 1, true), "document close is not finally-like")
+    local close_pos = assert(block:find("pcall(doc.close, doc)", 1, true))
+    local error_pos = assert(block:find("if not ok then", 1, true))
+    truthy(close_pos < error_pos, "document must close before read error returns")
+end)
+
+check("reset all discards current and historical undo snapshots", function()
+    local data = read_file("main.lua")
+    local start = assert(data:find("function MetadataScraper:resetAllSettings", 1, true))
+    local finish = assert(data:find("function MetadataScraper:clearDiagnostics", start, true))
+    local block = data:sub(start, finish - 1)
+    truthy(block:find("self.settings.undo_records", 1, true))
+    truthy(block:find("self.settings.history_records", 1, true))
+    local _, count = block:gsub("Writer%.discard_snapshot", "")
+    truthy(count >= 2, "both current and historical snapshots must be discarded")
+end)
+
+check("provenance schema reflects expanded v0.1.4 record", function()
+    local data = read_file("main.lua")
+    truthy(data:find("provenance_version = 2", 1, true))
+end)
+
+check("result and refresh previews isolate Writer.preview exceptions", function()
+    local data = read_file("main.lua")
+    truthy(data:find("pcall(Writer.preview, file, raw, r", 1, true), "result preview is not isolated")
+    truthy(data:find("pcall(Writer.preview, file, raw, result", 1, true), "refresh preview is not isolated")
+    truthy(data:find('tostring(r.source_label or r.source or _("unknown source"))', 1, true), "source label is not nil-safe")
+end)
+
+check("shared Retry-After parser is bounded and case-insensitive", function()
+    package.loaded["lib/util"] = nil
+    local U = require("lib/util")
+    eq(U.retry_after_seconds({headers={["Retry-After"]="42"}}, 30, 100), 42)
+    eq(U.retry_after_seconds({headers={["RETRY-AFTER"]="500"}}, 30, 120), 120)
+    eq(U.retry_after_seconds({headers={}}, 25, 120), 25)
+end)
+
+check("Open Library 429 enters provider cooldown without a second request", function()
+    package.loaded["providers/openlibrary"] = nil
+    package.loaded["lib/http"] = nil
+    local calls = 0
+    package.preload["lib/http"] = function()
+        return { json=function() calls=calls+1; return {code=429, headers={["retry-after"]="60"}, json={}} end }
+    end
+    local P = require("providers/openlibrary")
+    local out, err = P.search({title="Test"}, {})
+    eq(#out, 0); truthy(tostring(err):find("rate limited", 1, true))
+    local status, kind = P.status({})
+    eq(kind, "cooldown"); truthy(status:find("cooling down", 1, true))
+    P.search({title="Test"}, {})
+    eq(calls, 1, "cooldown should block the second network request")
+    package.preload["lib/http"] = nil; package.loaded["lib/http"] = nil; package.loaded["providers/openlibrary"] = nil
+end)
+
+check("support diagnostics include only bounded safe runtime metadata", function()
+    local data = read_file("main.lua")
+    truthy(data:find("local function safe_runtime_diagnostics", 1, true))
+    truthy(data:find('pcall(require, "device")', 1, true))
+    truthy(data:find('pcall(require, "version")', 1, true))
+    truthy(data:find("runtime.settings_file = self.settings_file", 1, true))
+end)
+
 io.write(string.format("\n%d passed, %d failed\n", passed, failed))
 if failed > 0 then os.exit(1) end

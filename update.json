@@ -26,13 +26,13 @@
     "lib/matcher.lua": "dc2bc176503db6479c9ebf2f439cd6dd6e4ba8d56f15ff4e04e012ef2eda3dd7",
     "lib/settings.lua": "f66d81ffb0aa262e381b351b669fb0531d6dbb61d52c95f868b67b7211c28d79",
     "lib/updater.lua": "3350a055facb623ceceaa5d62c7b5d9f2dcd020f7800859ec3ffbc13079baa56",
-    "lib/util.lua": "f9a96f093a5d18a8df3d442cec8fca33556fd0bfa7eb66a72d19de0695457393",
+    "lib/util.lua": "f107a8cd620716a591a9b3011e9588bbee50e73c5bc8c9bedf9b723886a53310",
     "lib/version.lua": "fb0c4cf8dd358aca9173ee0d6c39332876de25607b451214b054dca865ee3e2f",
     "lib/writer.lua": "7f57d4996351333c7314a92a74d36564f16ff2886a2e82c8f334ed9e034ecf63",
-    "main.lua": "23e0c05236df95f84c11d87b7429da85a05244736eb615fa5d539163877d65e5",
-    "providers/amazon.lua": "0732fe3deed333955f5208c63b91ca858ab38db5e5e6604941df15e14c0aac6e",
-    "providers/googlebooks.lua": "b75d2705876e0c71e0ff5a23be39e66517c4ab7ed4d46b77ca4bcee6c4d1d781",
-    "providers/hardcover.lua": "81397eefb4ef277468c60dad35b5a6f92d3a336ae3f95738e3d9c11d0ae8290a",
-    "providers/openlibrary.lua": "6c54c67fb1e9d7a7341229a0892a403e815a4db27a3f5840a41f3ef4f66e5d7f"
+    "main.lua": "6c94124960eaea9d947dd0f472de1fa7b0268f6d2753c458988dd5d8fca41a3d",
+    "providers/amazon.lua": "f8b034f47e7c24cda2ac055834ef6564f0b207abfeff7edca26b8432da8453bb",
+    "providers/googlebooks.lua": "9c64dc550523d2805dc8f5ffb2224fefbade3211be33d5bd11a8610fc697f859",
+    "providers/hardcover.lua": "6242d1e2e46b6ac9c956bf97f3256f6f0ee5c6276baaa4a38ba9b13869cc053d",
+    "providers/openlibrary.lua": "539aa884c6ce168e57cf5db252e77c38d1615560e4112bd98500b12fd142e99f"
   }
 }

@@ -15,6 +15,7 @@ local FE = { ["www.amazon.com.au"] = true, ["www.amazon.co.jp"] = true, ["www.am
 local NA = { ["www.amazon.com"] = true, ["www.amazon.ca"] = true, ["www.amazon.com.mx"] = true, ["www.amazon.com.br"] = true }
 
 local token_cache = { value = nil, expiry = 0, key = nil }
+local cooldown_until = 0
 
 local function credential_version(settings)
     local version = U.trim(tostring(settings.amazon_credential_version or ""))
@@ -50,7 +51,21 @@ local function amazon_error(res)
     return "HTTP " .. tostring(res and res.code or "?")
 end
 
+local function cooldown_error()
+    local remaining = cooldown_until - os.time()
+    if remaining > 0 then return "Amazon Creators API is cooling down; retry in about " .. tostring(math.max(1, remaining)) .. " seconds" end
+end
+
+local function apply_rate_limit(res)
+    if not res or res.code ~= 429 then return nil end
+    local wait = U.retry_after_seconds(res, 30, 1800)
+    cooldown_until = os.time() + wait
+    return "Amazon Creators API rate limited the request (cooldown " .. tostring(wait) .. "s)"
+end
+
 local function get_token(settings, force_refresh)
+    local blocked = cooldown_error()
+    if blocked then return nil, blocked end
     if not U.nonempty(settings.amazon_client_id) or not U.nonempty(settings.amazon_client_secret) then
         return nil, "Amazon Creators API credentials are not configured"
     end
@@ -71,11 +86,14 @@ local function get_token(settings, force_refresh)
         scope = "creatorsapi::default",
     })
     if not res then return nil, err end
+    local rate_error = apply_rate_limit(res)
+    if rate_error then clear_token_cache(); return nil, rate_error end
     if res.code ~= 200 or not res.json or not res.json.access_token then
         clear_token_cache()
         return nil, "Amazon authentication failed: " .. amazon_error(res)
     end
 
+    cooldown_until = 0
     token_cache.value = res.json.access_token
     token_cache.expiry = os.time() + (tonumber(res.json.expires_in) or 3600)
     token_cache.key = key
@@ -88,6 +106,8 @@ function P.status(settings)
             or not U.nonempty(settings.amazon_partner_tag) then
         return "credentials missing", "missing"
     end
+    local remaining = cooldown_until - os.time()
+    if remaining > 0 then return "cooling down " .. tostring(math.max(1, remaining)) .. "s", "cooldown" end
     local endpoint = token_endpoint(settings)
     local key = cache_key(settings, endpoint)
     if token_cache.value and token_cache.key == key and token_cache.expiry > os.time() + 90 then
@@ -131,6 +151,8 @@ local function request_search(query, settings, access)
 end
 
 function P.search(query, settings)
+    local blocked = cooldown_error()
+    if blocked then return {}, blocked end
     if not U.nonempty(settings.amazon_partner_tag) then return {}, "Amazon Partner Tag is not configured" end
     local access, err = get_token(settings)
     if not access then return {}, err end
@@ -148,7 +170,10 @@ function P.search(query, settings)
         if not res then return {}, reqerr end
     end
 
+    local rate_error = apply_rate_limit(res)
+    if rate_error then return {}, rate_error end
     if res.code ~= 200 then return {}, amazon_error(res) end
+    cooldown_until = 0
     local root = res.json or {}
     local sr = root.searchResult or root.SearchResult or {}
     local items = sr.items or sr.Items or {}

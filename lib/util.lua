@@ -51,6 +51,21 @@ function M.urlencode(s)
     end))
 end
 
+function M.retry_after_seconds(res, fallback, maximum)
+    local headers = type(res) == "table" and type(res.headers) == "table" and res.headers or {}
+    local header = headers["retry-after"] or headers["Retry-After"]
+    if header == nil then
+        for key, value in pairs(headers) do
+            if tostring(key):lower() == "retry-after" then header = value; break end
+        end
+    end
+    local seconds = tonumber(header)
+    maximum = math.max(1, tonumber(maximum) or 3600)
+    fallback = math.max(1, tonumber(fallback) or 30)
+    if seconds and seconds > 0 then return math.min(maximum, math.max(1, math.floor(seconds + 0.5))) end
+    return math.min(maximum, fallback)
+end
+
 function M.normalize(s)
     s = tostring(s or ""):lower()
     s = s:gsub("[%p%c]", " "):gsub("%s+", " ")

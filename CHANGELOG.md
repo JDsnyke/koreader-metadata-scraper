@@ -4,6 +4,15 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 
 ## [0.1.4] - Unreleased
 
+### Additional stability and provider hardening
+
+- Close KOReader document handles even when metadata reads or effective-property expansion throws, preventing leaked handles during repeated/batch scans.
+- Reset-all now deletes both the current undo snapshot set and older multi-revision history snapshots.
+- Bump saved match provenance to schema v2 for the expanded v0.1.4 record.
+- Harden search-result and saved-refresh previews against malformed/nil provider fields and isolate `Writer.preview` exceptions.
+- Add consistent bounded numeric `Retry-After` cooldown handling to Hardcover, Amazon Creators API, Google Books, and Open Library.
+- Expand sanitized support diagnostics with defensively collected Lua/LuaJIT, runtime architecture/OS, optional KOReader version, and non-secret device family/model information.
+
 ### Result preview stability
 
 - Fixed a Kindle/KOReader crash regression when selecting a metadata search result after numeric score-component rendering was added.

@@ -74,7 +74,7 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Hardcover opportunistically consumes existing search-document format/edition hints without requiring them.
 - [ ] Canonical provider work-vs-edition IDs — v0.2.0.
 - [ ] Provider-specific edition detail retrieval — v0.2.0.
-- [ ] Numeric positive/negative score-component breakdown — v0.2.0.
+- [x] Numeric positive/negative score-component breakdown — expedited to v0.1.4; detailed evidence moved to a bounded separate view after Kindle device feedback.
 
 ## D. Author comparison normalization — #40 core
 
@@ -119,8 +119,8 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Save score/confidence/reasons/query/fields/cover/plugin version/timestamp.
 - [x] Add **Last match details**.
 - [x] Cover-only successful change can be undone.
-- [ ] Multi-revision history — v0.2.0.
-- [ ] Direct exact provider-record refresh — v0.2.0.
+- [x] Multi-revision history — expedited to v0.1.4 with bounded per-book/global history.
+- [~] Direct exact provider-record refresh — Google Books exact volume refresh expedited to v0.1.4; other providers remain future work.
 
 ## G. Two-phase batch safety — #14/#18/#45
 
@@ -139,7 +139,7 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Apply phase processes only planned high-confidence entries.
 - [x] Final summary separates search vs apply failures.
 - [x] Applied batch books retain undo/provenance.
-- [ ] Per-row preview/deselect — v0.2.0.
+- [x] Per-row preview/deselect — ready-match review/deselect expedited to v0.1.4.
 - [ ] Borderline interactive review — v0.2.0.
 - [ ] Rich per-book saved report — v0.2.0.
 - [ ] Resume interrupted discovery/apply — v0.2.0.
@@ -152,7 +152,7 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Metadata-write exceptions become controlled failures.
 - [x] Cover-write exceptions become controlled failures.
 - [x] Updater verifies/stages before mutation and retains rollback.
-- [ ] Consolidate remaining wrappers if device testing identifies duplicated failure paths — v0.1.4.
+- [x] Consolidate high-risk result/refresh preview wrappers identified by device testing; preview rendering and Writer.preview failures now degrade to controlled diagnostics rather than escaping through KOReader UI.
 
 ## I. Shared HTTP resilience — #24 core
 
@@ -192,7 +192,7 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Google exposes active cooldown.
 - [x] Amazon exposes cached-token readiness.
 - [x] Persist/rotate diagnostics across restarts — v0.1.4 branch.
-- [ ] Richer safe device/KOReader runtime metadata — v0.1.4.
+- [x] Richer safe device/KOReader runtime metadata — Lua/LuaJIT runtime, architecture/OS, optional KOReader version, and non-secret device family/model are collected defensively for support bundles.
 
 ## L. SHA-256 updater integrity — #26
 
@@ -264,7 +264,7 @@ Device gate before stable Release publication:
 ## B. Provider pacing/status depth — #22/#20
 
 - [x] Provider-specific minimum request intervals for larger batches.
-- [ ] Honor Retry-After/cooldown consistently.
+- [x] Honor numeric Retry-After/cooldown consistently across Google Books, Hardcover, Amazon Creators API, and Open Library; provider-local cooldown blocks repeated requests while active.
 - [x] Continue healthy providers while another is cooling down — provider failures/cooldowns remain isolated per provider and do not abort the search loop.
 - [x] Optional persisted last health/test state.
 

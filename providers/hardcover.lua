@@ -5,6 +5,7 @@ local Version = require("lib/version")
 
 local P = { id = "hardcover", label = "Hardcover" }
 local ENDPOINT = "https://api.hardcover.app/v1/graphql"
+local cooldown_until = 0
 
 local function authorization_header(token)
     token = U.trim(tostring(token or ""))
@@ -16,12 +17,20 @@ end
 local function graphql(token, query, variables)
     local authorization = authorization_header(token)
     if not authorization then return nil, "Hardcover API token is not configured" end
+    local remaining = cooldown_until - os.time()
+    if remaining > 0 then return nil, "Hardcover is cooling down; retry in about " .. tostring(math.max(1, remaining)) .. " seconds" end
     local res, err = HTTP.json("POST", ENDPOINT, {
         ["Authorization"] = authorization,
         ["User-Agent"] = Version.user_agent(),
     }, { query = query, variables = variables or {} })
     if not res then return nil, err end
+    if res.code == 429 then
+        local wait = U.retry_after_seconds(res, 30, 1800)
+        cooldown_until = os.time() + wait
+        return nil, "Hardcover rate limited the request (cooldown " .. tostring(wait) .. "s)"
+    end
     if res.code ~= 200 then return nil, "HTTP " .. tostring(res.code) end
+    cooldown_until = 0
     if res.json and res.json.errors then
         local e = res.json.errors[1]
         return nil, (type(e) == "table" and e.message) or "GraphQL error"
@@ -56,6 +65,8 @@ function P.status(settings)
     if not U.nonempty(settings and settings.hardcover_token) then
         return "token missing", "missing"
     end
+    local remaining = cooldown_until - os.time()
+    if remaining > 0 then return "cooling down " .. tostring(math.max(1, remaining)) .. "s", "cooldown" end
     return "configured · not tested", "configured"
 end
 
