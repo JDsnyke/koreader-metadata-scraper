@@ -38,8 +38,8 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 
 - Replace the raw GitHub source recommendation with a Pages-ready static ZenPM repository at `https://jdsnyke.github.io/koreader-metadata-scraper/`, matching ZenPM's base-URL + `manifest.json` repository model.
 - Add a human-readable repository landing page plus a stable `manifest.json`, package README, and `versions.json` under `zenpm-repo/`.
-- Keep the ZenPM public catalog pinned to the latest actually published stable release while v0.1.4 remains unreleased.
-- Record the published v0.1.3 release asset URL, byte size, and GitHub-reported SHA-256 digest in the Pages repository metadata.
+- Keep the ZenPM public catalog pinned to published stable releases rather than arbitrary development branch builds.
+- Record stable release asset URL, byte size, and SHA-256 digest in the ZenPM repository metadata; release finalization advances that metadata to v0.1.4.
 
 ### Hardening and supportability
 
@@ -52,7 +52,7 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 - Add rollback-safe updater `remove` support for explicitly obsolete files; unsafe, duplicate, or install/remove-overlap paths fail closed.
 - Add Stable and Test update channels. Stable remains the default; Test follows published GitHub prereleases only and never arbitrary `main` commits.
 
-## [0.1.3] - Unreleased
+## [0.1.3] - 2026-08-16
 
 ### Reliability
 
