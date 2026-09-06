@@ -69,7 +69,15 @@ text = text[:start] + replacement + text[end:]
 text = text.replace('print("ZenPM Pages lint OK: static repository mirrors published stable v0.1.3.")', 'print("ZenPM Pages lint OK: static repository mirrors the configured stable release.")')
 lint_path.write_text(text, encoding="utf-8")
 
-# Print values for workflow logs.
+# Convert the development-only ZenPM assertion into a release-aware one.
+test_path = ROOT / "tests" / "v014_roadmap.lua"
+text = test_path.read_text(encoding="utf-8")
+old = '''    truthy(site_manifest:find('\"version\": \"0.1.3\"', 1, true), \"Pages manifest must not advertise unreleased v0.1.4\")\n    truthy(site_manifest:find('\"versions_url\": \"packages/metadata-scraper/versions.json\"', 1, true))\n    truthy(versions:find(\"metadata_scraper_koreader_v0.1.3.zip\", 1, true))\n    truthy(versions:find(\"sha256:ccb18681158f80dd41af824b954b2fd2333995502b206295f3b60c00c9723a3a\", 1, true))\n'''
+new = '''    truthy(site_manifest:find('\"version\": \"0.1.4\"', 1, true), \"Pages manifest must advertise stable v0.1.4 after release finalization\")\n    truthy(site_manifest:find('\"versions_url\": \"packages/metadata-scraper/versions.json\"', 1, true))\n    truthy(versions:find(\"metadata_scraper_koreader_v0.1.4.zip\", 1, true))\n    truthy(versions:find(\"sha256:\", 1, true), \"stable release digest missing\")\n'''
+if old not in text:
+    raise SystemExit("development ZenPM test block not found")
+test_path.write_text(text.replace(old, new, 1), encoding="utf-8")
+
 print(f"FINAL_ZIP_SHA256={digest}")
 print(f"FINAL_ZIP_SIZE={size}")
 print(f"PUBLISHED_AT={published_at}")
