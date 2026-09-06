@@ -39,10 +39,13 @@ Do not treat an unchecked roadmap item as implemented merely because adjacent in
 
 Keep workflow files minimal and durable.
 
-Expected long-lived workflows on `main`:
+Expected long-lived workflow on `main`:
 
 - `.github/workflows/lua-checks.yml` — syntax, lint, regression, release ZIP and artifact gate.
-- `.github/workflows/zenpm-pages.yml` — deploy the static ZenPM repository.
+
+Optional workflow:
+
+- A GitHub Pages/ZenPM deploy workflow may be added **only after GitHub Pages has been enabled for the repository by a repository administrator**. The normal `GITHUB_TOKEN` cannot create/enable a Pages site for this repository, so do not leave a workflow on `main` that predictably fails at `actions/configure-pages`.
 
 Rules:
 
@@ -50,7 +53,8 @@ Rules:
 - If a temporary workflow is genuinely necessary, create it only on a temporary branch and **delete it before merging that branch**.
 - Before every release, list `.github/workflows/` and remove obsolete/duplicate/one-shot workflows.
 - Update stale Action major versions when practical and compatible.
-- Do not ignore failed Actions. Read the failing job logs and identify whether the failure is code, packaging, configuration, or external infrastructure.
+- Do not ignore failed Actions. Read the failing job logs and identify whether the failure is code, packaging, configuration, permissions, or external infrastructure.
+- If an Action depends on a repository-admin prerequisite that automation cannot satisfy, remove/disable the failing workflow until that prerequisite is completed rather than accepting permanent red runs.
 - Historical run entries in the Actions UI are not source files; removing an obsolete workflow file prevents future runs even if old run history remains visible.
 
 ## Safety invariants

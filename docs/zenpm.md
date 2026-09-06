@@ -4,7 +4,7 @@ Metadata Scraper uses the same basic repository model as the official Zen Labs r
 
 ZenPM treats the URL entered by the user as a **repository base URL** and requests `<base>/manifest.json`. The Kindle ZenPM frontend must be able to fetch that file and parse `repo.name` before it will add the source.
 
-## Repository URL for users
+## Intended repository URL for users
 
 The intended public source is:
 
@@ -12,19 +12,30 @@ The intended public source is:
 
 In ZenPM, open **Sources → Add repository** and paste the base URL above. Do **not** append `manifest.json` yourself.
 
-The previous `raw.githubusercontent.com` source is no longer recommended. Although it can expose JSON in a browser, the ZenPM Kindle source detector performs a direct web fetch from the entered base URL; a dedicated static Pages origin more closely matches the official `https://repo.zen-labs.org/` repository design and avoids relying on GitHub's raw-content host as an application repository endpoint.
+The previous `raw.githubusercontent.com` source is not the preferred long-term endpoint. A dedicated static Pages origin more closely matches the official `https://repo.zen-labs.org/` repository design.
 
-After adding the source, refresh ZenPM. The listing should show:
+## Current deployment prerequisite
 
-- Repository: **JDsnyke KOReader Plugins**
-- Application: **Metadata Scraper**
-- Platform: **KOReader**
+The static repository tree is ready, but GitHub Pages must be enabled once at repository-admin level before an Actions deployment can work.
 
-The package maps to `metadata_scraper.koplugin` through the ZenPM `plugin_module` field.
+Required one-time repository setting:
+
+**Settings → Pages → Source: GitHub Actions**
+
+A normal workflow `GITHUB_TOKEN` cannot create/enable the Pages site for this repository. Attempts to self-enable through `actions/configure-pages` fail with `Resource not accessible by integration`.
+
+For release hygiene, a predictably failing Pages workflow should **not** remain on `main`. After Pages is enabled manually, re-add a small durable workflow that:
+
+1. checks out the repository;
+2. configures Pages;
+3. uploads only `zenpm-repo/`;
+4. deploys it with `actions/deploy-pages`.
+
+Until that one-time repository setting is completed, the static repository files can still be prepared and validated in source control without generating permanent red Actions runs.
 
 ## Static repository tree
 
-The source tree for the Pages site lives under `zenpm-repo/`:
+The source tree for the intended Pages site lives under `zenpm-repo/`:
 
 ```text
 zenpm-repo/
@@ -36,17 +47,9 @@ zenpm-repo/
         └── versions.json
 ```
 
-`zenpm-repo/manifest.json` intentionally tracks the **latest published stable release**, not whatever unreleased version is being developed on a branch. `versions.json` records the corresponding GitHub release asset URL, size, and digest.
+`zenpm-repo/manifest.json` should track the **latest published stable release**, not arbitrary commits on `main` or an unreleased feature branch. `versions.json` records the corresponding GitHub release asset URL, size, and digest.
 
-For the v0.1.4 development branch, the public catalog therefore remains on published v0.1.3 until v0.1.4 is actually released.
-
-## GitHub Pages deployment
-
-`.github/workflows/zenpm-pages.yml` deploys only `zenpm-repo/` when Pages content changes on `main`.
-
-GitHub Pages must first be enabled for the repository with **Settings → Pages → Source: GitHub Actions**. That repository-level setting cannot be enabled by the normal `GITHUB_TOKEN` used by a workflow. Once Pages is enabled and the workflow exists on `main`, the intended repository root is:
-
-`https://jdsnyke.github.io/koreader-metadata-scraper/`
+The root `manifest.json` mirrors the deployed repository metadata so release/ZenPM lints can catch drift before publication.
 
 ## Release maintenance
 
@@ -58,5 +61,21 @@ For every published stable release:
 4. Add the release to `zenpm-repo/packages/metadata-scraper/versions.json`.
 5. Keep unreleased branch builds out of the public stable ZenPM catalog.
 6. Run the ZenPM and release lints before merging the repository-index update.
+7. If Pages is enabled and a deploy workflow exists, require that deployment to pass.
+8. If Pages is not enabled, keep the deployment workflow absent until the repository-admin prerequisite is completed.
 
-The root `manifest.json` is kept compatible as repository metadata, but the Pages deployment source of truth is `zenpm-repo/`.
+## Re-enabling the Pages workflow later
+
+When Pages has been enabled at repository level, create `.github/workflows/zenpm-pages.yml` as a durable workflow and confirm a successful deployment before advertising the Pages URL as live.
+
+After deployment, verify that these paths return successfully:
+
+- `/manifest.json`
+- `/packages/metadata-scraper/README.md`
+- `/packages/metadata-scraper/versions.json`
+
+Then ZenPM should show:
+
+- Repository: **JDsnyke KOReader Plugins**
+- Application: **Metadata Scraper**
+- Platform: **KOReader**
