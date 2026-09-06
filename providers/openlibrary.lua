@@ -3,14 +3,32 @@ local U = require("lib/util")
 local Version = require("lib/version")
 
 local P = { id = "openlibrary", label = "Open Library" }
+local cooldown_until = 0
+
+local function cooldown_error()
+    local remaining = cooldown_until - os.time()
+    if remaining > 0 then return "Open Library is cooling down; retry in about " .. tostring(math.max(1, remaining)) .. " seconds" end
+end
 
 local function request(url)
-    return HTTP.json("GET", url, {
+    local blocked = cooldown_error()
+    if blocked then return nil, blocked end
+    local res, err = HTTP.json("GET", url, {
         ["User-Agent"] = Version.user_agent(),
     })
+    if not res then return nil, err end
+    if res.code == 429 then
+        local wait = U.retry_after_seconds(res, 30, 1800)
+        cooldown_until = os.time() + wait
+        return nil, "Open Library rate limited the request (cooldown " .. tostring(wait) .. "s)"
+    end
+    if res.code >= 200 and res.code < 300 then cooldown_until = 0 end
+    return res
 end
 
 function P.status()
+    local remaining = cooldown_until - os.time()
+    if remaining > 0 then return "cooling down " .. tostring(math.max(1, remaining)) .. "s", "cooldown" end
     return "ready · no credentials", "ready"
 end
 
@@ -55,6 +73,10 @@ function P.test()
     if not res then return false, err end
     if res.code ~= 200 then return false, "HTTP " .. tostring(res.code) end
     return true, "Reachable"
+end
+
+function P.reset_runtime_state()
+    cooldown_until = 0
 end
 
 return P

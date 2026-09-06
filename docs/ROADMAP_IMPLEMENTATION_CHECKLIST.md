@@ -74,7 +74,7 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Hardcover opportunistically consumes existing search-document format/edition hints without requiring them.
 - [ ] Canonical provider work-vs-edition IDs — v0.2.0.
 - [ ] Provider-specific edition detail retrieval — v0.2.0.
-- [ ] Numeric positive/negative score-component breakdown — v0.2.0.
+- [x] Numeric positive/negative score-component breakdown — expedited to v0.1.4; detailed evidence moved to a bounded separate view after Kindle device feedback.
 
 ## D. Author comparison normalization — #40 core
 
@@ -119,8 +119,8 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Save score/confidence/reasons/query/fields/cover/plugin version/timestamp.
 - [x] Add **Last match details**.
 - [x] Cover-only successful change can be undone.
-- [ ] Multi-revision history — v0.2.0.
-- [ ] Direct exact provider-record refresh — v0.2.0.
+- [x] Multi-revision history — expedited to v0.1.4 with bounded per-book/global history.
+- [~] Direct exact provider-record refresh — Google Books exact volume refresh expedited to v0.1.4; other providers remain future work.
 
 ## G. Two-phase batch safety — #14/#18/#45
 
@@ -139,7 +139,7 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Apply phase processes only planned high-confidence entries.
 - [x] Final summary separates search vs apply failures.
 - [x] Applied batch books retain undo/provenance.
-- [ ] Per-row preview/deselect — v0.2.0.
+- [x] Per-row preview/deselect — ready-match review/deselect expedited to v0.1.4.
 - [ ] Borderline interactive review — v0.2.0.
 - [ ] Rich per-book saved report — v0.2.0.
 - [ ] Resume interrupted discovery/apply — v0.2.0.
@@ -152,7 +152,7 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Metadata-write exceptions become controlled failures.
 - [x] Cover-write exceptions become controlled failures.
 - [x] Updater verifies/stages before mutation and retains rollback.
-- [ ] Consolidate remaining wrappers if device testing identifies duplicated failure paths — v0.1.4.
+- [x] Consolidate high-risk result/refresh preview wrappers identified by device testing; preview rendering and Writer.preview failures now degrade to controlled diagnostics rather than escaping through KOReader UI.
 
 ## I. Shared HTTP resilience — #24 core
 
@@ -164,7 +164,7 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Provider-specific cooldown remains authoritative.
 - [x] Retry/failure events enter sanitized diagnostics.
 - [x] Failed download handles close before cleanup.
-- [ ] Provider-specific batch pacing — v0.1.4.
+- [x] Provider-specific batch pacing — v0.1.4 branch; conservative burst-control floors only, with provider cooldowns still authoritative.
 
 ## J. Cover validation and rollback — #25 core
 
@@ -191,8 +191,8 @@ Branch: `agent/v0.1.3-reliability-matching`
 - [x] Provider `status()` hooks do not make a network call simply to render UI.
 - [x] Google exposes active cooldown.
 - [x] Amazon exposes cached-token readiness.
-- [ ] Persist/rotate diagnostics across restarts — v0.1.4.
-- [ ] Richer safe device/KOReader runtime metadata — v0.1.4.
+- [x] Persist/rotate diagnostics across restarts — v0.1.4 branch.
+- [x] Richer safe device/KOReader runtime metadata — Lua/LuaJIT runtime, architecture/OS, optional KOReader version, and non-secret device family/model are collected defensively for support bundles.
 
 ## L. SHA-256 updater integrity — #26
 
@@ -254,48 +254,48 @@ Device gate before stable Release publication:
 
 ## A. Updater deletion and settings migrations — #27
 
-- [ ] Optional validated `remove` list.
-- [ ] Back up removed files before removal.
-- [ ] Restore removed files on later failure.
-- [ ] Settings schema version.
-- [ ] Ordered migration functions.
-- [ ] Regression paths from oldest supported settings format.
+- [x] Optional validated `remove` list.
+- [x] Back up removed files before removal.
+- [x] Restore removed files on later failure.
+- [x] Settings schema version.
+- [x] Ordered migration functions.
+- [x] Regression paths from oldest supported settings format.
 
 ## B. Provider pacing/status depth — #22/#20
 
-- [ ] Provider-specific minimum request intervals for larger batches.
-- [ ] Honor Retry-After/cooldown consistently.
-- [ ] Continue healthy providers while another is cooling down.
-- [ ] Optional persisted last health/test state.
+- [x] Provider-specific minimum request intervals for larger batches.
+- [x] Honor numeric Retry-After/cooldown consistently across Google Books, Hardcover, Amazon Creators API, and Open Library; provider-local cooldown blocks repeated requests while active.
+- [x] Continue healthy providers while another is cooling down — provider failures/cooldowns remain isolated per provider and do not abort the search loop.
+- [x] Optional persisted last health/test state.
 
 ## C. Persistent diagnostics — #46/#47
 
-- [ ] Bounded persistence model.
-- [ ] Timestamp/provider/operation/elapsed/status/result-count metadata.
-- [ ] Never persist full provider response bodies by default.
-- [ ] Rotation/size cap.
-- [ ] Clear log action.
-- [ ] Re-redact on export.
+- [x] Bounded persistence model.
+- [x] Timestamp/provider/operation/elapsed/status/result-count metadata.
+- [x] Never persist full provider response bodies by default.
+- [x] Rotation/size cap.
+- [x] Clear log action.
+- [x] Re-redact on export.
 
 ## D. Credential UX — #30
 
-- [ ] Mask saved credential identifiers where practical.
-- [ ] Validate Amazon credential-version input before save.
-- [ ] Never echo secret values in errors.
+- [x] Mask saved credential identifiers where practical.
+- [x] Validate Amazon credential-version input before save.
+- [x] Never intentionally echo configured secret values in provider/updater refresh errors; user-visible failure paths use diagnostics redaction.
 
 ## E. Settings backup/reset — #29
 
-- [ ] Reset matching settings.
-- [ ] Reset provider settings with warning.
-- [ ] Reset all plugin settings.
-- [ ] Credential-free configuration export by default if backup/export is added.
+- [x] Reset matching settings.
+- [x] Reset provider settings with warning.
+- [x] Reset all plugin settings.
+- [x] Credential-free configuration export by default.
 
 ## F. Stable/prerelease channel — #28
 
-- [ ] Stable remains default.
-- [ ] Optional test channel follows published prereleases only, never arbitrary `main`.
-- [ ] Clearly label test updates.
-- [ ] Easy return to Stable.
+- [x] Stable remains default.
+- [x] Optional Test channel follows published prereleases only, never arbitrary `main`.
+- [x] Clearly label Test-channel prerelease updates.
+- [x] Easy return to Stable.
 
 ---
 
@@ -311,35 +311,35 @@ Device gate before stable Release publication:
 
 ## B. Exact-record refresh — #1
 
-- [ ] Provider `get_by_id`/detail capability where feasible.
+- [~] Provider `get_by_id`/detail capability where feasible — Google Books exact volume-ID refresh expedited to v0.1.4; other providers remain future work.
 - [ ] Refresh saved provider record before fuzzy search.
-- [ ] Stale provider ID offers new search rather than silently selecting another edition.
-- [ ] **Refresh metadata**.
-- [ ] **Refresh cover only**.
-- [ ] Current→Proposed preview before refresh write.
+- [x] Stale supported provider ID reports failure and directs the user to a new search instead of silently selecting another edition — expedited to v0.1.4.
+- [~] **Refresh metadata** — exact saved Google Books records supported in v0.1.4; broader providers remain v0.2.0.
+- [~] **Refresh cover only** — exact saved Google Books records supported in v0.1.4; broader providers remain v0.2.0.
+- [x] Current→Proposed preview before supported exact-record refresh write — expedited to v0.1.4.
 
 ## C. Explainable score components — #42/#44
 
-- [ ] Explicit positive/negative component structure.
-- [ ] Human-readable numeric breakdown.
+- [x] Explicit positive/negative component structure — expedited to v0.1.4.
+- [x] Human-readable numeric breakdown in match preview/provenance — expedited to v0.1.4.
 - [ ] Ambiguous-title fixtures.
-- [ ] Hard conflicts always override misleading aggregate score/class.
+- [x] Hard conflicts always override misleading aggregate score/class for automatic batch eligibility; high-scoring conflicted results are counted as manual-review-required instead of auto-applied.
 
 ## D. Interactive batch review — deeper #14/#15
 
 - [ ] Keep discovery phase write-free.
-- [ ] List proposed entries individually.
-- [ ] Allow deselecting a ready row.
+- [x] List proposed ready entries individually — expedited to v0.1.4.
+- [x] Allow deselecting a ready row before Apply — expedited to v0.1.4.
 - [ ] Borderline Apply/Skip/Search again/Stop flow.
-- [ ] Cancel review with zero writes.
-- [ ] Preserve two-phase summary as simple/default path.
+- [x] Cancel review with zero writes — expedited to v0.1.4.
+- [x] Preserve two-phase summary as simple/default path — expedited to v0.1.4.
 
 ## E. Resume/report/history — #23/#16/#13
 
 - [ ] Persist batch identity/completed entries safely.
 - [ ] Recover after restart/network loss without duplicate writes.
 - [ ] Save sanitized per-book batch report.
-- [ ] Bounded multi-revision metadata history beyond one-step undo.
+- [x] Bounded multi-revision metadata history beyond one-step undo — expedited to v0.1.4; repeated Undo walks backward through retained revisions.
 
 ## F. Recursive batch — #17
 

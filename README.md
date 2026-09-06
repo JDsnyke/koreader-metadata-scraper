@@ -6,6 +6,10 @@ A Kindle-friendly KOReader plugin for finding EPUB metadata and covers from **Ha
 
 > The built-in updater follows the repository's latest **published GitHub Release**, not arbitrary commits on `main`.
 
+## v0.1.4 development additions
+
+The current v0.1.4 development branch also includes foundations pulled forward from the later roadmap: explainable numeric match-score components, an interactive batch review/deselect step, bounded multi-revision Undo history, and exact saved Google Books record refresh for metadata or cover-only updates. These remain unreleased until v0.1.4 is finalized.
+
 ## Highlights in v0.1.3
 
 v0.1.3 is a major reliability and metadata-lifecycle release. It adds:
@@ -51,6 +55,18 @@ The plugin itself does not depend on a particular jailbreak once KOReader is alr
 
 Exit KOReader before using normal USB mass storage. When KOReader is running, a USB cable may only charge the device depending on the Kindle environment.
 
+## Install with ZenPM
+
+Metadata Scraper is being moved to a dedicated static ZenPM repository, following the same base-URL + `manifest.json` model used by the official Zen Labs repository.
+
+Once GitHub Pages is enabled for this repository, add this **base URL** in **ZenPM → Sources → Add repository**:
+
+`https://jdsnyke.github.io/koreader-metadata-scraper/`
+
+Do not append `manifest.json`; ZenPM requests that file from the repository root itself. The previous `raw.githubusercontent.com` source is no longer recommended because the Kindle ZenPM source detector performs a direct web fetch and expects a normal static repository endpoint.
+
+The Pages catalog intentionally tracks only published stable releases. During v0.1.4 development it continues to advertise published v0.1.3 rather than an unreleased branch build. See [`docs/zenpm.md`](docs/zenpm.md) for the repository layout, Pages activation step, and release-maintenance process.
+
 ## Installation
 
 ### Fresh installation
@@ -81,6 +97,7 @@ metadata_scraper.koplugin/
 │   ├── diagnostics.lua
 │   ├── http.lua
 │   ├── matcher.lua
+│   ├── settings.lua
 │   ├── updater.lua
 │   ├── util.lua
 │   ├── version.lua
@@ -176,7 +193,9 @@ enabled
 source_scope
 batch_threshold
 batch_skip_matched
+update_channel
 auto_update_check
+settings_schema_version
 ```
 
 Keep valid Lua quoting/commas and restart KOReader after editing.

@@ -11,6 +11,7 @@ local PathChooser = require("ui/widget/pathchooser")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local lfs = require("libs/libkoreader-lfs")
+local socket = require("socket")
 local util = require("util")
 local _ = require("gettext")
 
@@ -20,6 +21,7 @@ local Writer = require("lib/writer")
 local HTTP = require("lib/http")
 local Updater = require("lib/updater")
 local Version = require("lib/version")
+local Settings = require("lib/settings")
 local Diagnostics = require("lib/diagnostics")
 
 local PROVIDERS = {
@@ -29,8 +31,19 @@ local PROVIDERS = {
     openlibrary = require("providers/openlibrary"),
 }
 local DEFAULT_ORDER = { "hardcover", "amazon", "google", "openlibrary" }
+-- These are conservative burst-control floors for batch mode, not claims about
+-- provider API quotas. Provider Retry-After/cooldown handling remains authoritative.
+local BATCH_PROVIDER_INTERVAL = {
+    hardcover = 0.35,
+    amazon = 0.50,
+    google = 0.35,
+    openlibrary = 0.25,
+}
 
 local DEFAULTS = {
+    settings_schema_version = Settings.SCHEMA_VERSION,
+    update_channel = "stable",
+    provider_health = {},
     enabled = { hardcover = false, amazon = false, google = false, openlibrary = true },
     source_scope = "all",
     hardcover_token = "",
@@ -54,6 +67,7 @@ local DEFAULTS = {
     },
     book_links = {},
     undo_records = {},
+    history_records = {},
 }
 
 local MARKETPLACES = {
@@ -97,6 +111,8 @@ local function clone_defaults()
     d.fields = U.copy(DEFAULTS.fields)
     d.book_links = {}
     d.undo_records = {}
+    d.history_records = {}
+    d.provider_health = {}
     return d
 end
 
@@ -115,17 +131,52 @@ local function confidence_label(value)
     return labels[value] or tostring(value or _("Unknown"))
 end
 
-local function provider_status_text(provider, settings)
-    if not provider or type(provider.status) ~= "function" then return nil end
-    local ok, text = pcall(provider.status, settings)
-    if ok and text and tostring(text) ~= "" then return tostring(text) end
+local function score_breakdown_text(components, max_chars)
+    local parts = {}
+    for _, component in ipairs(type(components) == "table" and components or {}) do
+        if type(component) == "table" then
+            local label = tostring(component.label or _("evidence"))
+            if component.delta ~= nil and tonumber(component.delta) ~= 0 then
+                local delta = tonumber(component.delta) or 0
+                label = label .. " " .. (delta > 0 and "+" or "") .. tostring(delta)
+            end
+            if component.cap ~= nil then label = label .. " ≤" .. tostring(component.cap) end
+            if component.detail and tostring(component.detail) ~= "" then label = label .. " (" .. tostring(component.detail) .. ")" end
+            table.insert(parts, label)
+        elseif component ~= nil then
+            table.insert(parts, tostring(component))
+        end
+    end
+    local text = table.concat(parts, "; ")
+    max_chars = tonumber(max_chars) or 480
+    if #text > max_chars then text = text:sub(1, math.max(1, max_chars - 1)) .. "…" end
+    return text
+end
+
+local function empty_field_selection()
+    return { title = false, authors = false, series = false, series_index = false, language = false, keywords = false, description = false }
+end
+
+local function provider_status_text(provider, id, settings)
+    local text
+    if provider and type(provider.status) == "function" then
+        local ok, value = pcall(provider.status, settings)
+        if ok and value and tostring(value) ~= "" then text = tostring(value) end
+    end
+    local health = settings and type(settings.provider_health) == "table" and settings.provider_health[id]
+    if type(health) == "table" and health.tested_at then
+        local last = health.ok and "last test ✓" or "last test ✗"
+        text = text and (text .. " · " .. last) or last
+    end
+    return text
 end
 
 function MetadataScraper:init()
     self.settings_store = LuaSettings:open(self.settings_file)
     self.settings = clone_defaults()
-    local saved = self.settings_store:readSetting("config")
-    if type(saved) == "table" then
+    local saved_raw = self.settings_store:readSetting("config")
+    local saved, migrated_from = Settings.migrate(saved_raw)
+    if type(saved_raw) == "table" then
         for k, v in pairs(saved) do self.settings[k] = v end
         self.settings.enabled = U.copy(DEFAULTS.enabled)
         for k, v in pairs(saved.enabled or {}) do self.settings.enabled[k] = v end
@@ -133,7 +184,13 @@ function MetadataScraper:init()
         for k, v in pairs(saved.fields or {}) do self.settings.fields[k] = v end
         self.settings.book_links = saved.book_links or {}
         self.settings.undo_records = saved.undo_records or {}
+        self.settings.history_records = saved.history_records or {}
+        self.settings.provider_health = saved.provider_health or {}
+        if migrated_from < Settings.SCHEMA_VERSION then self:saveSettings() end
     end
+    local diagnostics_dir = DataStorage:getDataDir() .. "/cache/metadata_scraper"
+    util.makePath(diagnostics_dir)
+    Diagnostics.configure(diagnostics_dir .. "/diagnostics.log", self.settings)
     self.ui.menu:registerToMainMenu(self)
     self:installZenContextHook()
     UIManager:nextTick(function() self:maybeCheckForUpdates() end)
@@ -172,7 +229,7 @@ function MetadataScraper:installUpdate(release)
         })
     else
         Diagnostics.log("Updater", err or "Unknown update failure", self.settings)
-        UIManager:show(InfoMessage:new{ text = _("Update failed.") .. "\n" .. tostring(err) })
+        UIManager:show(InfoMessage:new{ text = _("Update failed.") .. "\n" .. Diagnostics.redact(err, self.settings) })
     end
 end
 
@@ -180,6 +237,9 @@ function MetadataScraper:showUpdateAvailable(release)
     local box
     local text = string.format(_("Metadata Scraper %s is available.\n\nInstalled: %s\n\nDownload and install it now?"),
         release.version, Updater.CURRENT_VERSION)
+    if release.prerelease then
+        text = text .. _("\n\nThis is a prerelease from the Test update channel.")
+    end
     box = ConfirmBox:new{
         text = text,
         ok_text = _("Update"),
@@ -198,13 +258,18 @@ function MetadataScraper:checkForUpdates(silent)
             busy = InfoMessage:new{ text = _("Checking for Metadata Scraper updates…") }
             UIManager:show(busy); UIManager:forceRePaint()
         end
-        local release, err = Updater.check()
+        local release, err = Updater.check(self.settings.update_channel)
         self.settings.last_update_check = os.time()
         self:saveSettings()
         if busy then UIManager:close(busy) end
         if not release then
-            Diagnostics.log("Updater", err or "Update check failed", self.settings)
-            if not silent then UIManager:show(InfoMessage:new{ text = _("Update check failed.") .. "\n" .. tostring(err) }) end
+            Diagnostics.log("Updater", err or "Update check failed", self.settings, { operation = "check", status = "error" })
+            if not silent then
+                local prefix = self.settings.update_channel == "prerelease"
+                    and _("No published Test-channel update is available.")
+                    or _("Update check failed.")
+                UIManager:show(InfoMessage:new{ text = prefix .. "\n" .. tostring(err) })
+            end
             return
         end
         if release.available then
@@ -273,17 +338,30 @@ function MetadataScraper:installZenContextHook()
 end
 
 function MetadataScraper:getRawProps(file)
+    local doc
     local ok, raw, effective = pcall(function()
-        local doc = DocumentRegistry:hasProvider(file) and DocumentRegistry:openDocument(file)
+        if not DocumentRegistry:hasProvider(file) then return {}, {} end
+        doc = DocumentRegistry:openDocument(file)
         if not doc then return {}, {} end
         local loaded = true
         if doc.loadDocument then loaded = doc:loadDocument(false) end
         local props = loaded and (doc:getProps() or {}) or {}
-        doc:close()
         return props, BookInfo.extendProps(props, file)
     end)
+
+    -- Close outside the protected metadata-read body so getProps/extendProps
+    -- exceptions cannot leak an open document handle on long batch runs.
+    if doc and type(doc.close) == "function" then
+        local closed, close_err = pcall(doc.close, doc)
+        if not closed then
+            Diagnostics.log("KOReader document close", close_err or "Could not close document", self.settings, {
+                operation = "metadata-read", status = "error",
+            })
+        end
+    end
+
     if not ok then
-        Diagnostics.log("KOReader metadata", raw, self.settings)
+        Diagnostics.log("KOReader metadata", raw, self.settings, { operation = "metadata-read", status = "error" })
         return {}, {}
     end
     return raw or {}, effective or {}
@@ -340,16 +418,26 @@ end
 function MetadataScraper:showBookActions(file)
     local dialog
     local rows = {
-        {{ text = _("Fetch metadata"), align = "left", callback = function() UIManager:close(dialog); self:startForFile(file) end }},
+        {{ text = _("Fetch metadata"), align = "left", callback = function() self:startForFile(file) end }},
     }
     if self.settings.undo_records[file] then
-        table.insert(rows, {{ text = _("Undo last metadata update"), align = "left", callback = function() UIManager:close(dialog); self:confirmUndo(file) end }})
+        table.insert(rows, {{ text = _("Undo last metadata update"), align = "left", callback = function() self:confirmUndo(file) end }})
     end
     if self.settings.book_links[file] then
-        table.insert(rows, {{ text = _("Last match details"), align = "left", callback = function() UIManager:close(dialog); self:showLastMatchDetails(file) end }})
+        table.insert(rows, {{ text = _("Last match details"), align = "left", callback = function() self:showLastMatchDetails(file) end }})
+        local link = self.settings.book_links[file]
+        local provider = link and PROVIDERS[link.source]
+        if provider and type(provider.get_by_id) == "function" and link.id then
+            table.insert(rows, {{ text = _("Refresh saved metadata"), align = "left", callback = function() self:refreshSavedRecord(file, false) end }})
+            table.insert(rows, {{ text = _("Refresh saved cover only"), align = "left", callback = function() self:refreshSavedRecord(file, true) end }})
+        end
     end
-    table.insert(rows, {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() UIManager:close(dialog); self:showSourceSelector() end }})
-    table.insert(rows, {{ text = _("Settings"), align = "left", callback = function() UIManager:close(dialog); self:showQuickSettings() end }})
+    local older = self.settings.history_records and self.settings.history_records[file]
+    if type(older) == "table" and #older > 0 then
+        table.insert(rows, {{ text = string.format(_("Metadata history (%d older)"), #older), align = "left", callback = function() self:showMetadataHistory(file) end }})
+    end
+    table.insert(rows, {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() self:showSourceSelector() end }})
+    table.insert(rows, {{ text = _("Settings"), align = "left", callback = function() self:showQuickSettings() end }})
     dialog = ButtonDialog:new{ title = _("Metadata"), title_align = "center", buttons = rows }
     UIManager:show(dialog)
 end
@@ -359,9 +447,9 @@ function MetadataScraper:showFolderActions(path)
     dialog = ButtonDialog:new{
         title = _("Metadata"), title_align = "center",
         buttons = {
-            {{ text = _("Fetch metadata in folder"), align = "left", callback = function() UIManager:close(dialog); self:confirmBatch(path) end }},
-            {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() UIManager:close(dialog); self:showSourceSelector() end }},
-            {{ text = _("Settings"), align = "left", callback = function() UIManager:close(dialog); self:showQuickSettings() end }},
+            {{ text = _("Fetch metadata in folder"), align = "left", callback = function() self:confirmBatch(path) end }},
+            {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() self:showSourceSelector() end }},
+            {{ text = _("Settings"), align = "left", callback = function() self:showQuickSettings() end }},
         },
     }
     UIManager:show(dialog)
@@ -379,7 +467,7 @@ function MetadataScraper:showProviderDialog()
     local rows = {}
     for _, id in ipairs(DEFAULT_ORDER) do
         local provider = PROVIDERS[id]
-        local status = provider_status_text(provider, self.settings)
+        local status = provider_status_text(provider, id, self.settings)
         local text = provider.label
         if status then text = text .. " · " .. status end
         if self.settings.enabled[id] then text = text .. "  ✓" end
@@ -442,30 +530,170 @@ function MetadataScraper:showQuickSettings()
     dialog = ButtonDialog:new{
         title = _("Metadata Scraper"), title_align = "center",
         buttons = {
-            {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() UIManager:close(dialog); self:showSourceSelector() end }},
-            {{ text = _("Providers"), align = "left", callback = function() UIManager:close(dialog); self:showProviderDialog() end }},
-            {{ text = _("Test provider connections…"), align = "left", callback = function() UIManager:close(dialog); self:testProviders() end }},
-            {{ text = _("Save support diagnostics…"), align = "left", callback = function() UIManager:close(dialog); self:saveSupportDiagnostics() end }},
-            {{ text = _("Metadata fields"), align = "left", callback = function() UIManager:close(dialog); self:showFieldDialog() end }},
+            {{ text = _("Search source") .. ": " .. self:getSourceLabel(), align = "left", callback = function() self:showSourceSelector() end }},
+            {{ text = _("Providers"), align = "left", callback = function() self:showProviderDialog() end }},
+            {{ text = _("Test provider connections…"), align = "left", callback = function() self:testProviders() end }},
+            {{ text = _("Save support diagnostics…"), align = "left", callback = function() self:saveSupportDiagnostics() end }},
+            {{ text = _("Metadata fields"), align = "left", callback = function() self:showFieldDialog() end }},
             {{ text = _("Write mode") .. ": " .. replace, align = "left", callback = function()
                 self.settings.replace_existing = not self.settings.replace_existing; self:saveSettings()
                 UIManager:close(dialog); UIManager:nextTick(function() self:showQuickSettings() end)
             end }},
-            {{ text = _("Batch threshold") .. ": " .. tostring(threshold) .. "%", align = "left", callback = function() UIManager:close(dialog); self:showBatchThresholdSelector() end }},
+            {{ text = _("Batch threshold") .. ": " .. tostring(threshold) .. "%", align = "left", callback = function() self:showBatchThresholdSelector() end }},
             {{ text = _("Skip already matched in batch") .. (self.settings.batch_skip_matched and "  ✓" or ""), align = "left", callback = function()
                 self.settings.batch_skip_matched = not self.settings.batch_skip_matched; self:saveSettings()
                 UIManager:close(dialog); UIManager:nextTick(function() self:showQuickSettings() end)
             end }},
-            {{ text = _("Hardcover account…"), align = "left", callback = function() UIManager:close(dialog); self:editHardcover() end }},
-            {{ text = _("Amazon account…"), align = "left", callback = function() UIManager:close(dialog); self:editAmazon() end }},
-            {{ text = _("Amazon marketplace") .. ": " .. self.settings.amazon_marketplace, align = "left", callback = function() UIManager:close(dialog); self:showMarketplaceSelector() end }},
-            {{ text = _("Amazon search index") .. ": " .. self.settings.amazon_search_index, align = "left", callback = function() UIManager:close(dialog); self:showAmazonIndexSelector() end }},
-            {{ text = _("Google Books API key…"), align = "left", callback = function() UIManager:close(dialog); self:editGoogle() end }},
-            {{ text = _("Check for updates…"), align = "left", callback = function() UIManager:close(dialog); self:checkForUpdates(false) end }},
+            {{ text = _("Hardcover account…"), align = "left", callback = function() self:editHardcover() end }},
+            {{ text = _("Amazon account…"), align = "left", callback = function() self:editAmazon() end }},
+            {{ text = _("Amazon marketplace") .. ": " .. self.settings.amazon_marketplace, align = "left", callback = function() self:showMarketplaceSelector() end }},
+            {{ text = _("Amazon search index") .. ": " .. self.settings.amazon_search_index, align = "left", callback = function() self:showAmazonIndexSelector() end }},
+            {{ text = _("Google Books API key…"), align = "left", callback = function() self:editGoogle() end }},
+            {{ text = _("Update channel") .. ": " .. self:getUpdateChannelLabel(), align = "left", callback = function() self:showUpdateChannelSelector() end }},
+            {{ text = _("Settings tools…"), align = "left", callback = function() self:showSettingsTools() end }},
+            {{ text = _("Check for updates…"), align = "left", callback = function() self:checkForUpdates(false) end }},
             {{ text = _("Automatic update checks") .. (self.settings.auto_update_check and "  ✓" or ""), align = "left", callback = function()
                 self.settings.auto_update_check = not self.settings.auto_update_check; self:saveSettings()
                 UIManager:close(dialog); UIManager:nextTick(function() self:showQuickSettings() end)
             end }},
+        },
+    }
+    UIManager:show(dialog)
+end
+
+function MetadataScraper:getUpdateChannelLabel()
+    return self.settings.update_channel == "prerelease" and _("Test (prereleases)") or _("Stable")
+end
+
+function MetadataScraper:showUpdateChannelSelector()
+    self:showSelectDialog(_("Update channel"), {
+        { _("Stable"), "stable" },
+        { _("Test (prereleases)"), "prerelease" },
+    }, self.settings.update_channel or "stable", function(value)
+        self.settings.update_channel = value == "prerelease" and "prerelease" or "stable"
+        self.settings.last_update_check = 0
+        self:saveSettings()
+    end)
+end
+
+function MetadataScraper:exportSafeSettings()
+    local cache_dir = DataStorage:getDataDir() .. "/cache/metadata_scraper"
+    util.makePath(cache_dir)
+    local filepath = cache_dir .. "/settings_export.lua"
+    os.remove(filepath)
+    local store = LuaSettings:open(filepath)
+    store:saveSetting("config", Settings.safe_export(self.settings))
+    store:flush()
+    UIManager:show(InfoMessage:new{
+        text = _("Credential-free settings exported to:") .. "\n" .. filepath
+            .. "\n\n" .. _("Provider secrets, per-book provenance, undo records, health state, and update timestamps are omitted."),
+    })
+end
+
+function MetadataScraper:resetMatchingSettings()
+    local box
+    box = ConfirmBox:new{
+        text = _("Reset search, metadata-field, write-mode, and batch preferences to their defaults? Provider credentials and per-book undo/provenance will be kept."),
+        ok_text = _("Reset"),
+        ok_callback = function()
+            UIManager:close(box)
+            self.settings.source_scope = DEFAULTS.source_scope
+            self.settings.replace_existing = DEFAULTS.replace_existing
+            self.settings.download_cover = DEFAULTS.download_cover
+            self.settings.batch_threshold = DEFAULTS.batch_threshold
+            self.settings.batch_limit = DEFAULTS.batch_limit
+            self.settings.batch_skip_matched = DEFAULTS.batch_skip_matched
+            self.settings.fields = U.copy(DEFAULTS.fields)
+            self:saveSettings()
+            UIManager:show(InfoMessage:new{ text = _("Matching and batch preferences reset.") })
+        end,
+    }
+    UIManager:show(box)
+end
+
+function MetadataScraper:resetProviderSettings()
+    local box
+    box = ConfirmBox:new{
+        text = _("Reset all provider accounts and provider preferences? This removes saved API credentials from Metadata Scraper settings."),
+        ok_text = _("Reset providers"),
+        ok_callback = function()
+            UIManager:close(box)
+            self.settings.enabled = U.copy(DEFAULTS.enabled)
+            self.settings.hardcover_token = ""
+            self.settings.google_api_key = ""
+            self.settings.amazon_client_id = ""
+            self.settings.amazon_client_secret = ""
+            self.settings.amazon_credential_version = ""
+            self.settings.amazon_partner_tag = ""
+            self.settings.amazon_marketplace = DEFAULTS.amazon_marketplace
+            self.settings.amazon_search_index = DEFAULTS.amazon_search_index
+            self.settings.provider_health = {}
+            for _, provider in pairs(PROVIDERS) do
+                if type(provider.reset_runtime_state) == "function" then provider.reset_runtime_state() end
+            end
+            self:saveSettings()
+            UIManager:show(InfoMessage:new{ text = _("Provider settings reset.") })
+        end,
+    }
+    UIManager:show(box)
+end
+
+function MetadataScraper:resetAllSettings()
+    local box
+    box = ConfirmBox:new{
+        text = _("Reset all Metadata Scraper settings? This removes provider credentials, preferences, saved match provenance, provider health, and available undo records."),
+        ok_text = _("Reset all"),
+        ok_callback = function()
+            UIManager:close(box)
+            for _, record in pairs(self.settings.undo_records or {}) do
+                Writer.discard_snapshot(record.snapshot or record)
+            end
+            for _, records in pairs(self.settings.history_records or {}) do
+                if type(records) == "table" then
+                    for _, record in ipairs(records) do
+                        Writer.discard_snapshot(record.snapshot or record)
+                    end
+                end
+            end
+            Diagnostics.clear()
+            self.settings = clone_defaults()
+            for _, provider in pairs(PROVIDERS) do
+                if type(provider.reset_runtime_state) == "function" then provider.reset_runtime_state() end
+            end
+            self:saveSettings()
+            local diagnostics_dir = DataStorage:getDataDir() .. "/cache/metadata_scraper"
+            util.makePath(diagnostics_dir)
+            Diagnostics.configure(diagnostics_dir .. "/diagnostics.log", self.settings)
+            UIManager:show(InfoMessage:new{ text = _("Metadata Scraper settings reset.") })
+        end,
+    }
+    UIManager:show(box)
+end
+
+function MetadataScraper:clearDiagnostics()
+    local box
+    box = ConfirmBox:new{
+        text = _("Clear the persistent and in-memory Metadata Scraper diagnostics log?"),
+        ok_text = _("Clear"),
+        ok_callback = function()
+            UIManager:close(box)
+            Diagnostics.clear()
+            UIManager:show(InfoMessage:new{ text = _("Diagnostics cleared.") })
+        end,
+    }
+    UIManager:show(box)
+end
+
+function MetadataScraper:showSettingsTools()
+    local dialog
+    dialog = ButtonDialog:new{
+        title = _("Settings tools"), title_align = "center",
+        buttons = {
+            {{ text = _("Export settings (no credentials)…"), align = "left", callback = function() self:exportSafeSettings() end }},
+            {{ text = _("Reset matching/batch settings…"), align = "left", callback = function() self:resetMatchingSettings() end }},
+            {{ text = _("Reset provider settings…"), align = "left", callback = function() self:resetProviderSettings() end }},
+            {{ text = _("Clear diagnostics…"), align = "left", callback = function() self:clearDiagnostics() end }},
+            {{ text = _("Reset all plugin settings…"), align = "left", callback = function() self:resetAllSettings() end }},
         },
     }
     UIManager:show(dialog)
@@ -515,6 +743,7 @@ function MetadataScraper:editHardcover()
             { text = _("Save"), callback = function()
                 self.settings.hardcover_token = dlg:getFields()[1] or ""
                 self.settings.enabled.hardcover = U.nonempty(self.settings.hardcover_token)
+                if type(PROVIDERS.hardcover.reset_runtime_state) == "function" then PROVIDERS.hardcover.reset_runtime_state() end
                 self:saveSettings(); UIManager:close(dlg)
             end },
         }},
@@ -535,6 +764,7 @@ function MetadataScraper:editGoogle()
             { text = _("Save"), callback = function()
                 self.settings.google_api_key = dlg:getFields()[1] or ""
                 self.settings.enabled.google = U.nonempty(self.settings.google_api_key)
+                if type(PROVIDERS.google.reset_runtime_state) == "function" then PROVIDERS.google.reset_runtime_state() end
                 self:saveSettings(); UIManager:close(dlg)
             end },
         }},
@@ -547,21 +777,27 @@ function MetadataScraper:editAmazon()
     dlg = MultiInputDialog:new{
         title = _("Amazon Creators API"),
         fields = {
-            { text = self.settings.amazon_client_id or "", hint = _("Credential ID") },
+            { text = self.settings.amazon_client_id or "", hint = _("Credential ID"), text_type = "password" },
             { text = self.settings.amazon_client_secret or "", hint = _("Credential secret"), text_type = "password" },
             { text = self.settings.amazon_credential_version or "", hint = _("Credential version (3.1 / 3.2 / 3.3)") },
-            { text = self.settings.amazon_partner_tag or "", hint = _("Partner Tag") },
+            { text = self.settings.amazon_partner_tag or "", hint = _("Partner Tag"), text_type = "password" },
         },
         buttons = {{
             { text = _("Cancel"), id = "close", callback = function() UIManager:close(dlg) end },
             { text = _("Save"), callback = function()
                 local f = dlg:getFields()
+                local credential_version = U.trim(f[3] or "")
+                if not Settings.valid_amazon_credential_version(credential_version) then
+                    UIManager:show(InfoMessage:new{ text = _("Credential version must be blank, 3.1, 3.2, or 3.3.") })
+                    return
+                end
                 self.settings.amazon_client_id = f[1] or ""
                 self.settings.amazon_client_secret = f[2] or ""
-                self.settings.amazon_credential_version = U.trim(f[3] or "")
+                self.settings.amazon_credential_version = credential_version
                 self.settings.amazon_partner_tag = f[4] or ""
                 self.settings.enabled.amazon = U.nonempty(f[1]) and U.nonempty(f[2]) and U.nonempty(f[4])
-                if PROVIDERS.amazon.reset_token_cache then PROVIDERS.amazon.reset_token_cache() end
+                if type(PROVIDERS.amazon.reset_runtime_state) == "function" then PROVIDERS.amazon.reset_runtime_state()
+                elseif PROVIDERS.amazon.reset_token_cache then PROVIDERS.amazon.reset_token_cache() end
                 self:saveSettings(); UIManager:close(dlg)
             end },
         }},
@@ -574,9 +810,11 @@ function MetadataScraper:testProviders()
         local busy = InfoMessage:new{ text = _("Testing metadata providers…") }
         UIManager:show(busy); UIManager:forceRePaint()
         local lines = {}
+        self.settings.provider_health = self.settings.provider_health or {}
         for _, id in ipairs(DEFAULT_ORDER) do
             local provider = PROVIDERS[id]
             local good, detail
+            local started = socket.gettime()
             if type(provider.test) == "function" then
                 local ok, result, message = pcall(provider.test, self.settings)
                 if ok then
@@ -587,23 +825,60 @@ function MetadataScraper:testProviders()
             else
                 good, detail = false, _("No diagnostic available")
             end
-            Diagnostics.log(provider.label, (good and "diagnostic OK: " or "diagnostic failed: ") .. tostring(detail or ""), self.settings)
-            table.insert(lines, string.format("%s %s — %s",
-                good and "✓" or "✗", provider.label, tostring(detail or (good and _("OK") or _("Failed")))))
+            local elapsed_ms = math.floor((socket.gettime() - started) * 1000 + 0.5)
+            detail = Diagnostics.redact(detail or (good and _("OK") or _("Failed")), self.settings)
+            self.settings.provider_health[id] = {
+                ok = good == true,
+                tested_at = os.time(),
+                elapsed_ms = elapsed_ms,
+                detail = detail,
+            }
+            Diagnostics.log(provider.label, (good and "diagnostic OK: " or "diagnostic failed: ") .. detail, self.settings, {
+                operation = "diagnostic",
+                status = good and "ok" or "error",
+                elapsed_ms = elapsed_ms,
+            })
+            table.insert(lines, string.format("%s %s — %s (%dms)",
+                good and "✓" or "✗", provider.label, detail, elapsed_ms))
         end
+        self:saveSettings()
         UIManager:close(busy)
         UIManager:show(InfoMessage:new{ text = table.concat(lines, "\n") })
     end)
+end
+
+local function safe_runtime_diagnostics()
+    local info = {
+        lua = _VERSION or "unknown",
+        plugin_root = PLUGIN_ROOT,
+        target = "KOReader 2026.07+",
+    }
+    if type(jit) == "table" then
+        info.luajit = jit.version
+        info.runtime_os = jit.os
+        info.runtime_arch = jit.arch
+    end
+    local ok_device, Device = pcall(require, "device")
+    if ok_device and type(Device) == "table" then
+        local model = Device.model or Device.device_model
+        if type(model) == "string" and model ~= "" then info.device_model = model end
+        if type(Device.isKindle) == "function" then
+            local ok_kindle, is_kindle = pcall(Device.isKindle, Device)
+            if ok_kindle then info.device_family = is_kindle and "Kindle" or "non-Kindle" end
+        end
+    end
+    local ok_version, koreader_version = pcall(require, "version")
+    if ok_version and type(koreader_version) == "string" then info.koreader_version = koreader_version end
+    return info
 end
 
 function MetadataScraper:saveSupportDiagnostics()
     local cache_dir = DataStorage:getDataDir() .. "/cache/metadata_scraper"
     util.makePath(cache_dir)
     local filepath = cache_dir .. "/support_diagnostics.txt"
-    local ok, err = Diagnostics.write_bundle(filepath, self.settings, {
-        plugin_root = PLUGIN_ROOT,
-        target = "KOReader 2026.07+",
-    })
+    local runtime = safe_runtime_diagnostics()
+    runtime.settings_file = self.settings_file
+    local ok, err = Diagnostics.write_bundle(filepath, self.settings, runtime)
     if ok then
         UIManager:show(InfoMessage:new{
             text = _("Sanitized support diagnostics saved to:") .. "\n" .. filepath
@@ -668,18 +943,32 @@ function MetadataScraper:sourcePriority()
     return p
 end
 
-function MetadataScraper:searchProviders(query)
+function MetadataScraper:paceProvider(id, options)
+    if type(options) ~= "table" or not options.batch then return end
+    local interval = tonumber(BATCH_PROVIDER_INTERVAL[id]) or 0
+    if interval <= 0 then return end
+    self._provider_last_request = self._provider_last_request or {}
+    local now = socket.gettime()
+    local last = tonumber(self._provider_last_request[id])
+    if last and now - last < interval then socket.sleep(interval - (now - last)) end
+    self._provider_last_request[id] = socket.gettime()
+end
+
+function MetadataScraper:searchProviders(query, options)
     local results, errors, counts = {}, {}, {}
     for _, id in ipairs(self:providerOrder()) do
         local enabled = self.settings.enabled[id]
         if self.settings.source_scope ~= "all" then enabled = true end
         if enabled and PROVIDERS[id] then
+            local started = socket.gettime()
+            self:paceProvider(id, options)
             local ok, list, err = pcall(PROVIDERS[id].search, query, self.settings)
             if ok and type(list) == "table" then
                 -- If a strict title+author query returns nothing, retry title-only once.
                 if #list == 0 and not err and not query.isbn and U.nonempty(query.title) and U.nonempty(query.author) then
                     local broader = U.copy(query)
                     broader.author = ""
+                    self:paceProvider(id, options)
                     local retry_ok, retry_list, retry_err = pcall(PROVIDERS[id].search, broader, self.settings)
                     if retry_ok and type(retry_list) == "table" then
                         list, err = retry_list, retry_err
@@ -689,12 +978,18 @@ function MetadataScraper:searchProviders(query)
                 end
                 counts[id] = #list
                 for _, r in ipairs(list) do table.insert(results, r) end
-                if err then errors[id] = err end
+                if err then errors[id] = Diagnostics.redact(err, self.settings) end
             else
                 counts[id] = 0
-                errors[id] = ok and (err or "Unknown error") or tostring(list)
+                errors[id] = Diagnostics.redact(ok and (err or "Unknown error") or tostring(list), self.settings)
             end
-            if errors[id] then Diagnostics.log(PROVIDERS[id].label, errors[id], self.settings) end
+            local elapsed_ms = math.floor((socket.gettime() - started) * 1000 + 0.5)
+            Diagnostics.log(PROVIDERS[id].label, errors[id] or "search completed", self.settings, {
+                operation = "search",
+                status = errors[id] and "error" or "ok",
+                elapsed_ms = elapsed_ms,
+                result_count = counts[id] or 0,
+            })
         end
     end
     Matcher.rank(query, results, self:sourcePriority())
@@ -713,7 +1008,7 @@ function MetadataScraper:searchOnline(file, raw, query)
                 if counts[id] ~= nil or errors[id] then
                     local label = PROVIDERS[id] and PROVIDERS[id].label or id
                     if errors[id] then
-                        table.insert(lines, label .. ": " .. tostring(errors[id]))
+                        table.insert(lines, label .. ": " .. Diagnostics.redact(errors[id], self.settings))
                     else
                         table.insert(lines, label .. ": " .. tostring(counts[id] or 0) .. " results")
                     end
@@ -731,10 +1026,10 @@ function MetadataScraper:showResults(file, raw, query, results)
     local rows = {}
     local max = math.min(6, #results)
     for i = 1, max do
-        local r = results[i]
+        local r = type(results[i]) == "table" and results[i] or {}
         local author = U.join(r.authors, ", ", 2)
-        local secondary = r.source_label or r.source
-        if r.also_sources and #r.also_sources > 0 then
+        local secondary = tostring(r.source_label or r.source or _("unknown source"))
+        if type(r.also_sources) == "table" and #r.also_sources > 0 then
             secondary = secondary .. " +" .. tostring(#r.also_sources)
         end
         if r.published_date then secondary = secondary .. " · " .. tostring(r.published_date) end
@@ -744,7 +1039,17 @@ function MetadataScraper:showResults(file, raw, query, results)
         text = text .. "\n" .. tostring(r.score or 0) .. "% " .. confidence_label(r.confidence) .. " · " .. secondary
         table.insert(rows, {{
             text = text, align = "left",
-            callback = function() UIManager:close(dialog); self:showPreview(file, raw, query, r) end,
+            callback = function()
+                UIManager:close(dialog)
+                local ok, err = pcall(self.showPreview, self, file, raw, query, r)
+                if not ok then
+                    local message = Diagnostics.redact(err or "Result preview failed", self.settings)
+                    Diagnostics.log("Result preview", message, self.settings, { operation = "preview", status = "error" })
+                    UIManager:show(InfoMessage:new{
+                        text = _("Could not open this metadata result safely.") .. "\n" .. tostring(message),
+                    })
+                end
+            end,
         }})
     end
     table.insert(rows, {{
@@ -759,6 +1064,53 @@ function MetadataScraper:showResults(file, raw, query, results)
     UIManager:show(dialog)
 end
 
+function MetadataScraper:discardHistoryForFile(file)
+    self.settings.history_records = self.settings.history_records or {}
+    for _, record in ipairs(self.settings.history_records[file] or {}) do
+        Writer.discard_snapshot(record.snapshot or record)
+    end
+    self.settings.history_records[file] = nil
+end
+
+function MetadataScraper:pruneHistoryRecords()
+    self.settings.history_records = self.settings.history_records or {}
+    local all = {}
+    for file, records in pairs(self.settings.history_records) do
+        if type(records) == "table" then
+            while #records > 4 do
+                local record = table.remove(records, 1)
+                Writer.discard_snapshot(record.snapshot or record)
+            end
+            for index, record in ipairs(records) do
+                table.insert(all, { file = file, index = index, created_at = tonumber(record.created_at) or 0, record = record })
+            end
+        end
+    end
+    table.sort(all, function(a, b) return a.created_at < b.created_at end)
+    while #all > 30 do
+        local oldest = table.remove(all, 1)
+        local records = self.settings.history_records[oldest.file]
+        if records then
+            for i, record in ipairs(records) do
+                if record == oldest.record then
+                    Writer.discard_snapshot(record.snapshot or record)
+                    table.remove(records, i)
+                    break
+                end
+            end
+            if #records == 0 then self.settings.history_records[oldest.file] = nil end
+        end
+    end
+end
+
+function MetadataScraper:archiveUndoRecord(file, record)
+    if type(record) ~= "table" then return end
+    self.settings.history_records = self.settings.history_records or {}
+    self.settings.history_records[file] = self.settings.history_records[file] or {}
+    table.insert(self.settings.history_records[file], record)
+    self:pruneHistoryRecords()
+end
+
 function MetadataScraper:pruneUndoRecords()
     local records = self.settings.undo_records or {}
     local ordered = {}
@@ -771,13 +1123,15 @@ function MetadataScraper:pruneUndoRecords()
         local record = records[oldest.file]
         if record then Writer.discard_snapshot(record.snapshot or record) end
         records[oldest.file] = nil
+        self:discardHistoryForFile(oldest.file)
     end
 end
 
 function MetadataScraper:storeUndoRecord(file, snapshot, previous_link)
+    if type(snapshot) ~= "table" then return end
     self.settings.undo_records = self.settings.undo_records or {}
     local old = self.settings.undo_records[file]
-    if old then Writer.discard_snapshot(old.snapshot or old) end
+    if old then self:archiveUndoRecord(file, old) end
     self.settings.undo_records[file] = {
         snapshot = snapshot,
         previous_book_link = previous_link,
@@ -791,7 +1145,7 @@ function MetadataScraper:recordLink(file, r, query, changes, cover_ok)
     local written_fields = {}
     for _, change in ipairs(changes or {}) do table.insert(written_fields, change.key) end
     self.settings.book_links[file] = {
-        provenance_version = 1,
+        provenance_version = 2,
         source = r.source,
         source_label = r.source_label,
         id = r.id,
@@ -813,6 +1167,7 @@ function MetadataScraper:recordLink(file, r, query, changes, cover_ok)
         score = r.score,
         confidence = r.confidence,
         match_reasons = U.copy(r.match_reasons),
+        score_components = U.copy(r.score_components),
         also_sources = U.copy(r.also_sources),
         query = {
             title = query and query.title or nil,
@@ -861,6 +1216,8 @@ function MetadataScraper:showLastMatchDetails(file)
     if link.match_reasons and #link.match_reasons > 0 then
         table.insert(lines, _("Match reasons") .. ": " .. U.join(link.match_reasons, ", "))
     end
+    local breakdown = score_breakdown_text(link.score_components, 220)
+    if breakdown ~= "" then table.insert(lines, _("Score breakdown") .. ": " .. breakdown) end
     if link.updated_at then table.insert(lines, _("Matched") .. ": " .. tostring(link.updated_at)) end
     table.insert(lines, _("Plugin") .. ": " .. tostring(link.plugin_version or _("unknown")))
     UIManager:show(InfoMessage:new{ text = table.concat(lines, "\n") })
@@ -886,17 +1243,116 @@ function MetadataScraper:confirmUndo(file)
                 return
             end
             Writer.discard_snapshot(snapshot)
-            self.settings.undo_records[file] = nil
+            local history = self.settings.history_records and self.settings.history_records[file]
+            local previous_undo = type(history) == "table" and table.remove(history) or nil
+            if type(history) == "table" and #history == 0 then self.settings.history_records[file] = nil end
+            self.settings.undo_records[file] = previous_undo
             if record.had_previous_link then
                 self.settings.book_links[file] = record.previous_book_link
             else
                 self.settings.book_links[file] = nil
             end
             self:saveSettings()
-            UIManager:show(InfoMessage:new{ text = _("Previous metadata and cover restored.") })
+            local remaining = previous_undo and _(" An older revision is still available to undo.") or ""
+            UIManager:show(InfoMessage:new{ text = _("Previous metadata and cover restored.") .. remaining })
         end,
     }
     UIManager:show(box)
+end
+
+function MetadataScraper:showMetadataHistory(file)
+    local history = self.settings.history_records and self.settings.history_records[file] or {}
+    local current = self.settings.undo_records and self.settings.undo_records[file]
+    local lines = { _("Metadata revision history"), "" }
+    if current then
+        table.insert(lines, _("Current undo point") .. ": " .. os.date("%Y-%m-%d %H:%M:%S", tonumber(current.created_at) or os.time()))
+    end
+    for i = #history, 1, -1 do
+        local record = history[i]
+        table.insert(lines, string.format(_("Older revision %d: %s"), #history - i + 1, os.date("%Y-%m-%d %H:%M:%S", tonumber(record.created_at) or os.time())))
+    end
+    table.insert(lines, "")
+    table.insert(lines, _("Use Undo last metadata update repeatedly to walk backward through these revisions."))
+    UIManager:show(InfoMessage:new{ text = table.concat(lines, "\n") })
+end
+
+function MetadataScraper:showRefreshPreview(file, raw, query, result, cover_only)
+    local dialog
+    local fields = cover_only and empty_field_selection() or self.settings.fields
+    local preview_ok, changes, preview_err = pcall(Writer.preview, file, raw, result, fields, self.settings.replace_existing)
+    if not preview_ok then
+        preview_err = Diagnostics.redact(changes or "Refresh preview failed", self.settings)
+        changes = nil
+        Diagnostics.log("Refresh preview", preview_err, self.settings, { operation = "refresh-preview", status = "error" })
+    end
+    local rows = {
+        {{ text = _("Exact saved provider record") .. ": " .. tostring(result.source_label or result.source), align = "left", enabled = false }},
+    }
+    if cover_only then
+        table.insert(rows, {{ text = _("Refresh mode") .. ": " .. _("cover only"), align = "left", enabled = false }})
+    elseif changes then
+        table.insert(rows, {{ text = _("Current → Proposed"), align = "left", enabled = false }})
+        if #changes == 0 then
+            table.insert(rows, {{ text = _("No selected text fields need changing."), align = "left", enabled = false }})
+        else
+            for _, change in ipairs(changes) do
+                local label = _(PREVIEW_LABELS[change.key] or change.key)
+                local text = change.key == "description"
+                    and (label .. ": " .. (change.action == "add" and _("add description") or _("replace description")))
+                    or (label .. ": " .. display_value(change.current) .. " → " .. display_value(change.proposed))
+                table.insert(rows, {{ text = text, align = "left", enabled = false }})
+            end
+        end
+    else
+        table.insert(rows, {{ text = _("Change preview unavailable") .. ": " .. Diagnostics.redact(preview_err, self.settings), align = "left", enabled = false }})
+    end
+    table.insert(rows, {{ text = _("Cover") .. ": " .. (result.cover_url and _("available") or _("not available")), align = "left", enabled = false }})
+    table.insert(rows, {
+        { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+        { text = _("Apply refresh"), callback = function()
+            UIManager:close(dialog)
+            self:applyResult(file, raw, result, false, query, {
+                fields = fields,
+                download_cover = cover_only and true or self.settings.download_cover,
+                replace_existing = self.settings.replace_existing,
+            })
+        end },
+    })
+    dialog = ButtonDialog:new{ title = cover_only and _("Refresh saved cover") or _("Refresh saved metadata"), title_align = "center", buttons = rows }
+    UIManager:show(dialog)
+end
+
+function MetadataScraper:refreshSavedRecord(file, cover_only)
+    local link = self.settings.book_links and self.settings.book_links[file]
+    local provider = link and PROVIDERS[link.source]
+    if not link or not provider or type(provider.get_by_id) ~= "function" or not link.id then
+        UIManager:show(InfoMessage:new{ text = _("This saved match does not support exact-record refresh yet.") })
+        return
+    end
+    NetworkMgr:runWhenOnline(function()
+        local busy = InfoMessage:new{ text = _("Refreshing saved provider record…") }
+        UIManager:show(busy); UIManager:forceRePaint()
+        local ok, result, err = pcall(provider.get_by_id, link.id, self.settings)
+        UIManager:close(busy)
+        if not ok or type(result) ~= "table" then
+            local message = Diagnostics.redact(ok and err or result, self.settings)
+            Diagnostics.log(provider.label, message, self.settings, { operation = "refresh", status = "error" })
+            UIManager:show(InfoMessage:new{
+                text = _("The exact saved provider record could not be refreshed.") .. "\n" .. message
+                    .. "\n\n" .. _("Use Fetch metadata to search again; Metadata Scraper will not silently substitute a different edition."),
+            })
+            return
+        end
+        if tostring(result.id or "") ~= tostring(link.id) or result.source ~= link.source then
+            UIManager:show(InfoMessage:new{ text = _("Provider returned a different record; refresh was cancelled.") })
+            return
+        end
+        Diagnostics.log(provider.label, "exact saved record refreshed", self.settings, { operation = "refresh", status = "ok", result_count = 1 })
+        local raw = self:getRawProps(file)
+        local query = U.copy(link.query or {})
+        query.media_kind = query.media_kind or "ebook"
+        self:showRefreshPreview(file, raw, query, result, cover_only == true)
+    end)
 end
 
 function MetadataScraper:applyResult(file, raw, result, quiet, query, options)
@@ -1079,20 +1535,37 @@ function MetadataScraper:showPreview(file, raw, query, r)
             table.insert(rows, {{ text = label .. ": " .. tostring(value), align = "left", enabled = false }})
         end
     end
+    r = type(r) == "table" and r or {}
     info(_("Author"), U.join(r.authors, ", "))
-    if r.series then info(_("Series"), r.series .. (r.series_index and (" #" .. tostring(r.series_index)) or "")) end
+    if r.series then info(_("Series"), tostring(r.series) .. (r.series_index and (" #" .. tostring(r.series_index)) or "")) end
     info(_("Published"), r.published_date)
     info(_("Language"), r.language)
     info("ISBN-13", r.isbn13); info("ISBN-10", r.isbn10)
     info(_("Format"), r.format or r.binding or r.media_kind)
     info(_("Edition"), r.edition)
-    info(_("Source"), (r.source_label or r.source) .. " · " .. tostring(r.score or 0) .. "%")
+    info(_("Source"), tostring(r.source_label or r.source or _("unknown source")) .. " · " .. tostring(r.score or 0) .. "%")
     info(_("Confidence"), confidence_label(r.confidence))
     if r.also_sources and #r.also_sources > 0 then info(_("Also found on"), U.join(r.also_sources, ", ")) end
     if r.match_reasons and #r.match_reasons > 0 then info(_("Match"), U.join(r.match_reasons, ", ")) end
     info(_("Cover"), r.cover_url and _("available") or _("not available"))
+    if type(r.score_components) == "table" and #r.score_components > 0 then
+        table.insert(rows, {{
+            text = _("Match evidence…"), align = "left",
+            callback = function()
+                local breakdown = score_breakdown_text(r.score_components, 1200)
+                UIManager:show(InfoMessage:new{
+                    text = _("Match evidence") .. "\n\n" .. (breakdown ~= "" and breakdown or _("No score evidence available.")),
+                })
+            end,
+        }})
+    end
 
-    local changes, change_err = Writer.preview(file, raw, r, self.settings.fields, self.settings.replace_existing)
+    local preview_ok, changes, change_err = pcall(Writer.preview, file, raw, r, self.settings.fields, self.settings.replace_existing)
+    if not preview_ok then
+        change_err = Diagnostics.redact(changes or "Metadata preview failed", self.settings)
+        changes = nil
+        Diagnostics.log("Result preview", change_err, self.settings, { operation = "preview", status = "error" })
+    end
     if changes then
         if #changes == 0 then
             info(_("Text changes"), _("none with current field/write-mode settings"))
@@ -1168,26 +1641,83 @@ local function all_attempted_providers_failed(order, errors, counts)
     return attempted > 0 and failed == attempted
 end
 
+local function selected_batch_count(plan)
+    local selected = 0
+    for _, entry in ipairs(plan.apply or {}) do
+        if entry.selected ~= false then selected = selected + 1 end
+    end
+    return selected
+end
+
+function MetadataScraper:showBatchReview(plan)
+    local dialog
+    local function render()
+        local rows = {}
+        for _, entry in ipairs(plan.apply or {}) do
+            local r = entry.result or {}
+            local title = tostring(r.title or (entry.query and entry.query.title) or entry.file)
+            local source = tostring(r.source_label or r.source or "")
+            local marker = entry.selected == false and "○ " or "✓ "
+            local text = marker .. title .. "\n" .. tostring(r.score or 0) .. "% " .. confidence_label(r.confidence) .. " · " .. source
+            table.insert(rows, {{
+                text = text, align = "left",
+                callback = function()
+                    entry.selected = entry.selected == false
+                    UIManager:close(dialog)
+                    UIManager:nextTick(render)
+                end,
+            }})
+        end
+        local selected = selected_batch_count(plan)
+        table.insert(rows, {
+            { text = _("Back"), callback = function() UIManager:close(dialog); self:showBatchPlan(plan) end },
+            { text = string.format(_("Apply selected (%d)"), selected), callback = function()
+                if selected == 0 then
+                    UIManager:show(InfoMessage:new{ text = _("No proposed matches are selected. No metadata was changed.") })
+                    return
+                end
+                UIManager:close(dialog)
+                self:applyBatchPlan(plan)
+            end },
+        })
+        dialog = ButtonDialog:new{ title = _("Review batch matches"), title_align = "center", buttons = rows }
+        UIManager:show(dialog)
+    end
+    render()
+end
+
 function MetadataScraper:showBatchPlan(plan)
     if #plan.apply == 0 then
         UIManager:show(InfoMessage:new{
-            text = string.format(_("Batch discovery complete.\n\nReady to apply: 0\nLow/no match: %d\nAlready matched: %d\nSearch failures: %d\n\nNo metadata was changed."),
-                plan.skipped, plan.already_matched, plan.failed),
+            text = string.format(_("Batch discovery complete.\n\nReady to apply: 0\nManual review required: %d\nLow/no match: %d\nAlready matched: %d\nSearch failures: %d\n\nNo metadata was changed."),
+                plan.manual_review or 0, plan.skipped, plan.already_matched, plan.failed),
         })
         return
     end
 
-    local box
-    box = ConfirmBox:new{
-        text = string.format(_("Batch discovery complete.\n\nReady to apply: %d\nLow/no match: %d\nAlready matched: %d\nSearch failures: %d\n\nApply the %d proposed high-confidence matches now?"),
-            #plan.apply, plan.skipped, plan.already_matched, plan.failed, #plan.apply),
-        ok_text = _("Apply"),
-        ok_callback = function()
-            UIManager:close(box)
-            self:applyBatchPlan(plan)
-        end,
+    local selected = selected_batch_count(plan)
+    local dialog
+    dialog = ButtonDialog:new{
+        title = _("Batch discovery complete"),
+        title_align = "center",
+        buttons = {
+            {{ text = string.format(_("Selected: %d of %d ready · Manual review: %d · Low/no match: %d · Already matched: %d · Search failures: %d"),
+                selected, #plan.apply, plan.manual_review or 0, plan.skipped, plan.already_matched, plan.failed), align = "left", enabled = false }},
+            {{ text = _("Review proposed matches…"), align = "left", callback = function() UIManager:close(dialog); self:showBatchReview(plan) end }},
+            {
+                { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
+                { text = string.format(_("Apply selected (%d)"), selected), callback = function()
+                    if selected == 0 then
+                        UIManager:show(InfoMessage:new{ text = _("No proposed matches are selected. No metadata was changed.") })
+                        return
+                    end
+                    UIManager:close(dialog)
+                    self:applyBatchPlan(plan)
+                end },
+            },
+        },
     }
-    UIManager:show(box)
+    UIManager:show(dialog)
 end
 
 function MetadataScraper:runBatch(files, count)
@@ -1203,6 +1733,7 @@ function MetadataScraper:runBatch(files, count)
             skipped = 0,
             already_matched = 0,
             failed = 0,
+            manual_review = 0,
             total = count,
             threshold = threshold,
             options = batch_options,
@@ -1225,17 +1756,22 @@ function MetadataScraper:runBatch(files, count)
                 }
                 local busy = InfoMessage:new{ text = string.format(_("Discovering %d/%d\n%s"), i, count, q.title) }
                 UIManager:show(busy); UIManager:forceRePaint()
-                local results, errors, counts = self:searchProviders(q)
+                local results, errors, counts = self:searchProviders(q, { batch = true })
                 UIManager:close(busy)
                 local best = results and results[1]
-                if best and (best.score or 0) >= threshold then
+                if best and Matcher.auto_eligible(best, threshold) then
                     table.insert(plan.apply, {
                         file = file,
                         raw = raw,
                         query = q,
                         result = best,
                         options = batch_options,
+                        selected = true,
                     })
+                elseif best and (tonumber(best.score) or 0) >= threshold then
+                    -- High aggregate score with hard conflict evidence is deliberately
+                    -- held for manual review instead of being auto-applied.
+                    plan.manual_review = plan.manual_review + 1
                 elseif all_attempted_providers_failed(self:providerOrder(), errors or {}, counts or {}) then
                     plan.failed = plan.failed + 1
                 else
@@ -1250,18 +1786,25 @@ end
 
 function MetadataScraper:applyBatchPlan(plan)
     NetworkMgr:runWhenOnline(function()
-        local applied, failed = 0, 0
-        for i, entry in ipairs(plan.apply or {}) do
-            local title = (entry.result and entry.result.title) or (entry.query and entry.query.title) or entry.file
-            local busy = InfoMessage:new{ text = string.format(_("Applying %d/%d\n%s"), i, #plan.apply, tostring(title or "")) }
-            UIManager:show(busy); UIManager:forceRePaint()
-            local ok = self:applyResult(entry.file, entry.raw, entry.result, true, entry.query, entry.options or plan.options)
-            UIManager:close(busy)
-            if ok then applied = applied + 1 else failed = failed + 1 end
+        local applied, failed, review_skipped = 0, 0, 0
+        local selected = selected_batch_count(plan)
+        local position = 0
+        for _, entry in ipairs(plan.apply or {}) do
+            if entry.selected == false then
+                review_skipped = review_skipped + 1
+            else
+                position = position + 1
+                local title = (entry.result and entry.result.title) or (entry.query and entry.query.title) or entry.file
+                local busy = InfoMessage:new{ text = string.format(_("Applying %d/%d\n%s"), position, selected, tostring(title or "")) }
+                UIManager:show(busy); UIManager:forceRePaint()
+                local ok = self:applyResult(entry.file, entry.raw, entry.result, true, entry.query, entry.options or plan.options)
+                UIManager:close(busy)
+                if ok then applied = applied + 1 else failed = failed + 1 end
+            end
         end
         UIManager:show(InfoMessage:new{
-            text = string.format(_("Batch complete.\nApplied: %d\nNot applied: %d\nAlready matched: %d\nSearch failures: %d\nApply failures: %d"),
-                applied, plan.skipped or 0, plan.already_matched or 0, plan.failed or 0, failed),
+            text = string.format(_("Batch complete.\nApplied: %d\nManual review required: %d\nLow/no match: %d\nReview skipped: %d\nAlready matched: %d\nSearch failures: %d\nApply failures: %d"),
+                applied, plan.manual_review or 0, plan.skipped or 0, review_skipped, plan.already_matched or 0, plan.failed or 0, failed),
         })
     end)
 end
@@ -1275,6 +1818,7 @@ function MetadataScraper:addToMainMenu(menu_items)
             {
                 text = _("Fetch metadata for current book"),
                 enabled_func = function() local f = self:getCurrentFile(); return f and self:isEpub(f) end,
+                keep_menu_open = true,
                 callback = function() self:startForFile(self:getCurrentFile()) end,
             },
             {
@@ -1283,6 +1827,7 @@ function MetadataScraper:addToMainMenu(menu_items)
                     local f = self:getCurrentFile()
                     return f and self.settings.undo_records and self.settings.undo_records[f] ~= nil
                 end,
+                keep_menu_open = true,
                 callback = function() self:confirmUndo(self:getCurrentFile()) end,
             },
             {
@@ -1291,12 +1836,44 @@ function MetadataScraper:addToMainMenu(menu_items)
                     local f = self:getCurrentFile()
                     return f and self.settings.book_links and self.settings.book_links[f] ~= nil
                 end,
+                keep_menu_open = true,
                 callback = function() self:showLastMatchDetails(self:getCurrentFile()) end,
             },
-            { text = _("Choose EPUB…"), callback = function() self:chooseEpub() end },
-            { text = _("Batch folder…"), callback = function() self:chooseBatchFolder() end, separator = true },
+            {
+                text = _("Refresh saved metadata"),
+                enabled_func = function()
+                    local f = self:getCurrentFile()
+                    local link = f and self.settings.book_links and self.settings.book_links[f]
+                    return link and PROVIDERS[link.source] and type(PROVIDERS[link.source].get_by_id) == "function" and link.id ~= nil
+                end,
+                keep_menu_open = true,
+                callback = function() self:refreshSavedRecord(self:getCurrentFile(), false) end,
+            },
+            {
+                text = _("Refresh saved cover only"),
+                enabled_func = function()
+                    local f = self:getCurrentFile()
+                    local link = f and self.settings.book_links and self.settings.book_links[f]
+                    return link and PROVIDERS[link.source] and type(PROVIDERS[link.source].get_by_id) == "function" and link.id ~= nil
+                end,
+                keep_menu_open = true,
+                callback = function() self:refreshSavedRecord(self:getCurrentFile(), true) end,
+            },
+            {
+                text = _("Metadata history"),
+                enabled_func = function()
+                    local f = self:getCurrentFile()
+                    local history = f and self.settings.history_records and self.settings.history_records[f]
+                    return type(history) == "table" and #history > 0
+                end,
+                keep_menu_open = true,
+                callback = function() self:showMetadataHistory(self:getCurrentFile()) end,
+            },
+            { text = _("Choose EPUB…"), keep_menu_open = true, callback = function() self:chooseEpub() end },
+            { text = _("Batch folder…"), keep_menu_open = true, callback = function() self:chooseBatchFolder() end, separator = true },
             {
                 text_func = function() return _("Batch threshold") .. ": " .. tostring(tonumber(self.settings.batch_threshold) or 90) .. "%" end,
+                keep_menu_open = true,
                 callback = function() self:showBatchThresholdSelector() end,
             },
             {
@@ -1324,13 +1901,13 @@ function MetadataScraper:addToMainMenu(menu_items)
             {
                 text = _("Provider accounts"),
                 sub_item_table = {
-                    { text = _("Test provider connections…"), callback = function() self:testProviders() end },
-                    { text = _("Save support diagnostics…"), callback = function() self:saveSupportDiagnostics() end },
-                    { text = _("Hardcover API token…"), callback = function() self:editHardcover() end },
-                    { text = _("Amazon Creators API…"), callback = function() self:editAmazon() end },
-                    { text_func = function() return _("Amazon marketplace") .. ": " .. self.settings.amazon_marketplace end, callback = function() self:showMarketplaceSelector() end },
-                    { text_func = function() return _("Amazon search index") .. ": " .. self.settings.amazon_search_index end, callback = function() self:showAmazonIndexSelector() end },
-                    { text = _("Google Books API key…"), callback = function() self:editGoogle() end },
+                    { text = _("Test provider connections…"), keep_menu_open = true, callback = function() self:testProviders() end },
+                    { text = _("Save support diagnostics…"), keep_menu_open = true, callback = function() self:saveSupportDiagnostics() end },
+                    { text = _("Hardcover API token…"), keep_menu_open = true, callback = function() self:editHardcover() end },
+                    { text = _("Amazon Creators API…"), keep_menu_open = true, callback = function() self:editAmazon() end },
+                    { text_func = function() return _("Amazon marketplace") .. ": " .. self.settings.amazon_marketplace end, keep_menu_open = true, callback = function() self:showMarketplaceSelector() end },
+                    { text_func = function() return _("Amazon search index") .. ": " .. self.settings.amazon_search_index end, keep_menu_open = true, callback = function() self:showAmazonIndexSelector() end },
+                    { text = _("Google Books API key…"), keep_menu_open = true, callback = function() self:editGoogle() end },
                 },
             },
             {
@@ -1354,6 +1931,7 @@ function MetadataScraper:addToMainMenu(menu_items)
             },
             {
                 text = _("Check for updates…"),
+                keep_menu_open = true,
                 callback = function() self:checkForUpdates(false) end,
             },
             {
@@ -1364,6 +1942,7 @@ function MetadataScraper:addToMainMenu(menu_items)
             },
             {
                 text = _("About"),
+                keep_menu_open = true,
                 callback = function()
                     UIManager:show(InfoMessage:new{ text = string.format(_([[Metadata Scraper %s
 

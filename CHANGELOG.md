@@ -2,6 +2,56 @@
 
 All notable changes to Metadata Scraper for KOReader will be documented here.
 
+## [0.1.4] - Unreleased
+
+### Additional stability and provider hardening
+
+- Prevent a high aggregate score from overriding hard ISBN/format/author/language/series conflicts during batch auto-apply; these are now explicitly counted as manual-review-required.
+- Clear provider-local cooldown/token runtime state when provider credentials are changed or reset, avoiding stale-account cooldowns until restart.
+- Close KOReader document handles even when metadata reads or effective-property expansion throws, preventing leaked handles during repeated/batch scans.
+- Reset-all now deletes both the current undo snapshot set and older multi-revision history snapshots.
+- Bump saved match provenance to schema v2 for the expanded v0.1.4 record.
+- Harden search-result and saved-refresh previews against malformed/nil provider fields and isolate `Writer.preview` exceptions.
+- Add consistent bounded numeric `Retry-After` cooldown handling to Hardcover, Amazon Creators API, Google Books, and Open Library.
+- Expand sanitized support diagnostics with defensively collected Lua/LuaJIT, runtime architecture/OS, optional KOReader version, and non-secret device family/model information.
+
+### Result preview stability
+
+- Fixed a Kindle/KOReader crash regression when selecting a metadata search result after numeric score-component rendering was added.
+- Moved detailed numeric score evidence out of the main result `ButtonDialog` into a bounded **Match evidence…** view.
+- Protected the result-selection preview callback so unexpected provider/detail rendering errors are logged and shown as a controlled message instead of escaping through KOReader UI.
+
+### Expedited roadmap foundations
+
+- Added structured positive/negative/cap score components and a human-readable numeric score breakdown in match preview and saved provenance.
+- Added an interactive, write-free batch review screen where ready matches can be individually deselected before the second Apply confirmation.
+- Expanded one-step Undo into a bounded revision chain: up to four older snapshots per book and 30 older snapshots globally, with repeated Undo walking backward through retained revisions.
+- Added exact saved-record refresh capability for Google Books volume IDs, including **Refresh saved metadata** and **Refresh saved cover only** with Current → Proposed review. A missing/stale saved ID never silently falls back to a fuzzy replacement.
+- Hardened additional user-visible updater/refresh error paths through diagnostics redaction.
+
+### Navigation and UX
+
+- Keep the **Metadata Scraper** KOReader submenu open underneath child dialogs so closing search forms, account dialogs, diagnostics, About, update checks, file/folder pickers, and other plugin windows returns to Metadata Scraper instead of the reader/file manager.
+- Preserve the Zen/context **Metadata** action dialog and Quick Settings as parent screens while their child windows are open.
+
+### ZenPM
+
+- Replace the raw GitHub source recommendation with a Pages-ready static ZenPM repository at `https://jdsnyke.github.io/koreader-metadata-scraper/`, matching ZenPM's base-URL + `manifest.json` repository model.
+- Add a human-readable repository landing page plus a stable `manifest.json`, package README, and `versions.json` under `zenpm-repo/`.
+- Keep the ZenPM public catalog pinned to the latest actually published stable release while v0.1.4 remains unreleased.
+- Record the published v0.1.3 release asset URL, byte size, and GitHub-reported SHA-256 digest in the Pages repository metadata.
+
+### Hardening and supportability
+
+- Add settings schema version 2 with ordered migration helpers for legacy installations.
+- Add credential-free settings export plus separate matching/provider/all-settings reset actions.
+- Validate Amazon credential version before saving and mask Credential ID/Partner Tag entry fields.
+- Persist a bounded, rotated, sanitized diagnostics log across KOReader restarts, including operation, status, elapsed time, and result-count metadata.
+- Persist the last provider connection-test status and elapsed time in plugin settings.
+- Add conservative per-provider request pacing during larger batch operations without overriding provider-specific Retry-After/cooldown behavior.
+- Add rollback-safe updater `remove` support for explicitly obsolete files; unsafe, duplicate, or install/remove-overlap paths fail closed.
+- Add Stable and Test update channels. Stable remains the default; Test follows published GitHub prereleases only and never arbitrary `main` commits.
+
 ## [0.1.3] - Unreleased
 
 ### Reliability

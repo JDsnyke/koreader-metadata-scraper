@@ -32,8 +32,8 @@ end
 
 check("central version and user agent", function()
     local Version = require("lib/version")
-    eq(Version.VERSION, "0.1.3")
-    eq(Version.user_agent(), "KOReader-Metadata-Scraper/0.1.3")
+    eq(Version.VERSION, "0.1.4")
+    eq(Version.user_agent(), "KOReader-Metadata-Scraper/0.1.4")
 end)
 
 check("runtime files do not carry stale release versions", function()
@@ -53,10 +53,10 @@ check("runtime files do not carry stale release versions", function()
         truthy(not data:find("Metadata Scraper 0%.1%.1"), path .. " has stale 0.1.1 display version")
         truthy(not data:find("Metadata Scraper 0%.1%.2"), path .. " has stale 0.1.2 display version")
     end
-    truthy(read_file("update.json"):find('"version": "0.1.3"', 1, true), "manifest version is not 0.1.3")
+    truthy(read_file("update.json"):find('"version": "0.1.4"', 1, true), "manifest version is not 0.1.4")
 end)
 
-check("v0.1.3 safety controls remain wired in the UI", function()
+check("v0.1.4 safety and navigation controls remain wired in the UI", function()
     local data = read_file("main.lua")
     truthy(data:find("Choose fields for this book", 1, true), "per-book field selector missing")
     truthy(data:find("batch_skip_matched", 1, true), "skip-matched batch setting missing")
@@ -232,7 +232,7 @@ check("Google Books honors 429 Retry-After and exposes cooldown status", functio
     package.loaded["lib/http"] = {
         json = function(method, url, headers)
             calls = calls + 1
-            eq(headers["User-Agent"], "KOReader-Metadata-Scraper/0.1.3")
+            eq(headers["User-Agent"], "KOReader-Metadata-Scraper/0.1.4")
             return {
                 code = 429,
                 headers = { ["Retry-After"] = "120" },
