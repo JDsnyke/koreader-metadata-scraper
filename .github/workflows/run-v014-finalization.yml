@@ -54,6 +54,6 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git rm scripts/finalize_v014_release.py
-          git add README.md CHANGELOG.md update.json manifest.json scripts/lint_zenpm_site.py zenpm-repo/manifest.json zenpm-repo/packages/metadata-scraper/versions.json
+          git add README.md CHANGELOG.md update.json manifest.json scripts/lint_zenpm_site.py tests/v014_roadmap.lua zenpm-repo/manifest.json zenpm-repo/packages/metadata-scraper/versions.json
           git commit -m "Finalize v0.1.4 release metadata"
           git push origin HEAD:agent/v0.1.4-release-finalization
