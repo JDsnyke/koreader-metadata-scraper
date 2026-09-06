@@ -1,4 +1,4 @@
-name: Publish v0.1.4 once
+name: Repair and finalize v0.1.4 once
 
 on:
   push:
@@ -33,14 +33,6 @@ jobs:
           set -euo pipefail
           test "$(gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" = "$TARGET_SHA"
           test "$(gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = "success"
-          if gh release view v0.1.4 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "v0.1.4 release already exists; refusing duplicate publication." >&2
-            exit 1
-          fi
-          if git ls-remote --exit-code --tags origin refs/tags/v0.1.4 >/dev/null 2>&1; then
-            echo "v0.1.4 tag already exists; refusing to move or reuse it." >&2
-            exit 1
-          fi
           mkdir -p release-artifact
           gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_NAME" --dir release-artifact
           ZIP="release-artifact/$ZIP_NAME"
@@ -52,7 +44,7 @@ jobs:
           test "$(unzip -Z1 "$ZIP" | wc -l | tr -d ' ')" = "16"
           test "$(unzip -Z1 "$ZIP" | grep -vc '^metadata_scraper.koplugin/' || true)" = "0"
 
-      - name: Write release notes
+      - name: Write final release notes
         run: |
           cat > release-notes.md <<'EOF'
           v0.1.4 is a stability, supportability, and metadata-lifecycle update for Metadata Scraper for KOReader.
@@ -93,27 +85,41 @@ jobs:
           `3dd4d2992bb3aab88767c388bd23f4c31178968425ec61d0a4ad21d57475ad22`
           EOF
 
-      - name: Create tagged GitHub Release
+      - name: Repair existing v0.1.4 tag and release
         run: |
           set -euo pipefail
           ZIP="release-artifact/$ZIP_NAME"
-          gh release create v0.1.4 "$ZIP" \
+          if ! gh release view v0.1.4 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Expected existing v0.1.4 release was not found; refusing ambiguous repair." >&2
+            exit 1
+          fi
+          git tag -f v0.1.4 "$TARGET_SHA"
+          git push --force origin refs/tags/v0.1.4
+          gh release delete-asset v0.1.4 "$ZIP_NAME" --repo "$GITHUB_REPOSITORY" --yes || true
+          gh release delete-asset v0.1.4 "$ZIP_NAME.sha256" --repo "$GITHUB_REPOSITORY" --yes || true
+          gh release upload v0.1.4 "$ZIP" "$ZIP.sha256" --repo "$GITHUB_REPOSITORY" --clobber
+          gh release edit v0.1.4 \
             --repo "$GITHUB_REPOSITORY" \
             --target "$TARGET_SHA" \
             --title "Metadata Scraper for KOReader v0.1.4" \
             --notes-file release-notes.md \
+            --draft=false \
+            --prerelease=false \
             --latest
 
-      - name: Verify published tag and asset
+      - name: Verify repaired tag and assets
         run: |
           set -euo pipefail
+          ZIP="release-artifact/$ZIP_NAME"
+          CHECKSUM_ASSET_SHA256="$(sha256sum "$ZIP.sha256" | awk '{print $1}')"
           git fetch --force --tags origin
           test "$(git rev-list -n 1 v0.1.4)" = "$TARGET_SHA"
           RELEASE_JSON="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v0.1.4")"
+          test "$(jq -r '.target_commitish' <<<"$RELEASE_JSON")" = "$TARGET_SHA"
           test "$(jq -r '.draft' <<<"$RELEASE_JSON")" = "false"
           test "$(jq -r '.prerelease' <<<"$RELEASE_JSON")" = "false"
-          test "$(jq -r '.assets | length' <<<"$RELEASE_JSON")" = "1"
-          test "$(jq -r '.assets[0].name' <<<"$RELEASE_JSON")" = "$ZIP_NAME"
-          test "$(jq -r '.assets[0].size' <<<"$RELEASE_JSON")" = "$EXPECTED_SIZE"
-          test "$(jq -r '.assets[0].digest' <<<"$RELEASE_JSON")" = "sha256:$EXPECTED_SHA256"
+          test "$(jq -r '.assets | length' <<<"$RELEASE_JSON")" = "2"
+          test "$(jq -r --arg n "$ZIP_NAME" '.assets[] | select(.name == $n) | .size' <<<"$RELEASE_JSON")" = "$EXPECTED_SIZE"
+          test "$(jq -r --arg n "$ZIP_NAME" '.assets[] | select(.name == $n) | .digest' <<<"$RELEASE_JSON")" = "sha256:$EXPECTED_SHA256"
+          test "$(jq -r --arg n "$ZIP_NAME.sha256" '.assets[] | select(.name == $n) | .digest' <<<"$RELEASE_JSON")" = "sha256:$CHECKSUM_ASSET_SHA256"
           echo "Release URL: $(jq -r '.html_url' <<<"$RELEASE_JSON")"
