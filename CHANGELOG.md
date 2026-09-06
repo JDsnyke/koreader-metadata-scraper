@@ -2,7 +2,7 @@
 
 All notable changes to Metadata Scraper for KOReader will be documented here.
 
-## [0.1.4] - Unreleased
+## [0.1.4] - 2026-09-06
 
 ### Additional stability and provider hardening
 
