@@ -1,0 +1,119 @@
+name: Publish v0.1.4 once
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/publish-v014-once.yml"
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      TARGET_SHA: f27a51dacdcc366d69846b442a9599b1b3a59908
+      SOURCE_RUN_ID: "34024958936"
+      ARTIFACT_NAME: metadata-scraper-v0.1.4-f27a51dacdcc366d69846b442a9599b1b3a59908
+      ZIP_NAME: metadata_scraper_koreader_v0.1.4.zip
+      EXPECTED_SHA256: 3dd4d2992bb3aab88767c388bd23f4c31178968425ec61d0a4ad21d57475ad22
+      EXPECTED_SIZE: "55781"
+    steps:
+      - name: Checkout repository history
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Verify source CI and download exact artifact
+        run: |
+          set -euo pipefail
+          test "$(gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json headSha --jq .headSha)" = "$TARGET_SHA"
+          test "$(gh run view "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)" = "success"
+          if gh release view v0.1.4 --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "v0.1.4 release already exists; refusing duplicate publication." >&2
+            exit 1
+          fi
+          if git ls-remote --exit-code --tags origin refs/tags/v0.1.4 >/dev/null 2>&1; then
+            echo "v0.1.4 tag already exists; refusing to move or reuse it." >&2
+            exit 1
+          fi
+          mkdir -p release-artifact
+          gh run download "$SOURCE_RUN_ID" --repo "$GITHUB_REPOSITORY" --name "$ARTIFACT_NAME" --dir release-artifact
+          ZIP="release-artifact/$ZIP_NAME"
+          test -f "$ZIP"
+          test -f "$ZIP.sha256"
+          (cd release-artifact && sha256sum -c "$ZIP_NAME.sha256")
+          test "$(sha256sum "$ZIP" | awk '{print $1}')" = "$EXPECTED_SHA256"
+          test "$(stat -c '%s' "$ZIP")" = "$EXPECTED_SIZE"
+          test "$(unzip -Z1 "$ZIP" | wc -l | tr -d ' ')" = "16"
+          test "$(unzip -Z1 "$ZIP" | grep -vc '^metadata_scraper.koplugin/' || true)" = "0"
+
+      - name: Write release notes
+        run: |
+          cat > release-notes.md <<'EOF'
+          v0.1.4 is a stability, supportability, and metadata-lifecycle update for Metadata Scraper for KOReader.
+
+          ## Highlights
+
+          - Fixes the Kindle result-selection/preview crash regression and hardens preview rendering.
+          - Improves KOReader document-handle cleanup, snapshot cleanup, provenance v2, and runtime-state resets.
+          - Adds consistent provider cooldown and `Retry-After` handling plus conservative batch pacing.
+          - Adds persistent sanitized diagnostics, stored provider health/test status, and richer safe support metadata.
+          - Adds settings migrations, credential-free settings export/reset tools, credential masking/validation, and Stable/Test updater channels.
+          - Adds rollback-safe updater file removal support.
+          - Makes batch auto-eligibility conflict-aware so hard ISBN/author/language/series/format conflicts cannot be auto-applied merely because the aggregate score is high.
+          - Adds numeric match evidence and an interactive ready-row batch review/deselect step before writes.
+          - Expands Undo into bounded multi-revision metadata history.
+          - Adds exact saved Google Books volume-ID refresh for metadata and cover-only updates without fuzzy fallback.
+          - Fixes parent-dialog/navigation behavior in KOReader metadata flows.
+          - Adds `AGENTS.md`, a reusable release checklist, and a rebaselined roadmap that explicitly distinguishes shipped, implemented, partial, and pending work.
+
+          ## ZenPM status
+
+          The static ZenPM repository files are prepared for v0.1.4 and record this exact release asset. GitHub Pages deployment is **not currently enabled** for the repository. The failing Pages Action was removed rather than leaving permanent red runs. A repository administrator must first enable **Settings → Pages → Source: GitHub Actions** before the Pages deployment workflow is restored.
+
+          ## Still on the roadmap
+
+          v0.1.4 intentionally does not complete the full roadmap. Important remaining work includes canonical cross-provider work/edition identity, broader exact-record refresh beyond Google Books, resumable batch processing, full borderline-review flow, batch report/export, multi-source field merging/provenance, cover quality/chooser work, normalization improvements, safe file organization, and audiobook metadata support.
+
+          ## Installation
+
+          Extract the release and copy `metadata_scraper.koplugin` to `koreader/plugins/`. For an existing install, copy the new plugin folder over the old one while preserving `koreader/settings/metadata_scraper.lua`. Restart KOReader completely after updating.
+
+          Compatibility: **KOReader 2026.07+**. Current metadata workflow: **EPUB**.
+
+          ## SHA-256
+
+          `metadata_scraper_koreader_v0.1.4.zip`
+
+          `3dd4d2992bb3aab88767c388bd23f4c31178968425ec61d0a4ad21d57475ad22`
+          EOF
+
+      - name: Create tagged GitHub Release
+        run: |
+          set -euo pipefail
+          ZIP="release-artifact/$ZIP_NAME"
+          gh release create v0.1.4 "$ZIP" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$TARGET_SHA" \
+            --title "Metadata Scraper for KOReader v0.1.4" \
+            --notes-file release-notes.md \
+            --latest
+
+      - name: Verify published tag and asset
+        run: |
+          set -euo pipefail
+          git fetch --force --tags origin
+          test "$(git rev-list -n 1 v0.1.4)" = "$TARGET_SHA"
+          RELEASE_JSON="$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/v0.1.4")"
+          test "$(jq -r '.draft' <<<"$RELEASE_JSON")" = "false"
+          test "$(jq -r '.prerelease' <<<"$RELEASE_JSON")" = "false"
+          test "$(jq -r '.assets | length' <<<"$RELEASE_JSON")" = "1"
+          test "$(jq -r '.assets[0].name' <<<"$RELEASE_JSON")" = "$ZIP_NAME"
+          test "$(jq -r '.assets[0].size' <<<"$RELEASE_JSON")" = "$EXPECTED_SIZE"
+          test "$(jq -r '.assets[0].digest' <<<"$RELEASE_JSON")" = "sha256:$EXPECTED_SHA256"
+          echo "Release URL: $(jq -r '.html_url' <<<"$RELEASE_JSON")"
