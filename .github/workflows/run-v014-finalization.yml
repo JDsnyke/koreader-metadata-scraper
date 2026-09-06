@@ -1,0 +1,59 @@
+name: Finalize v0.1.4 release metadata
+
+on:
+  push:
+    branches:
+      - agent/v0.1.4-release-finalization
+    paths:
+      - scripts/finalize_v014_release.py
+      - .github/workflows/run-v014-finalization.yml
+
+jobs:
+  finalize:
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: agent/v0.1.4-release-finalization
+          fetch-depth: 0
+      - name: Install Lua 5.1
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lua5.1
+      - name: Finalize release metadata
+        run: python3 scripts/finalize_v014_release.py
+      - name: Validate final release tree
+        run: |
+          python3 -m py_compile scripts/*.py
+          python3 -m json.tool update.json >/dev/null
+          python3 -m json.tool manifest.json >/dev/null
+          python3 -m json.tool zenpm-repo/manifest.json >/dev/null
+          python3 -m json.tool zenpm-repo/packages/metadata-scraper/versions.json >/dev/null
+          python3 scripts/lint_release.py
+          python3 scripts/lint_zenpm_manifest.py
+          python3 scripts/lint_zenpm_site.py
+          python3 scripts/generate_update_manifest.py --check
+          find . -name '*.lua' -print0 | xargs -0 -n1 luac5.1 -p
+          lua5.1 tests/run.lua
+          lua5.1 tests/hardening.lua
+          lua5.1 tests/diagnostics.lua
+          lua5.1 tests/diagnostics_persistence.lua
+          lua5.1 tests/matcher_safety.lua
+          lua5.1 tests/edition_batch.lua
+          lua5.1 tests/updater_integrity.lua
+          lua5.1 tests/updater_v014.lua
+          lua5.1 tests/lifecycle.lua
+          lua5.1 tests/navigation.lua
+          lua5.1 tests/v014_roadmap.lua
+          lua5.1 tests/v014_expansion.lua
+          git diff --check
+      - name: Commit final release metadata
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm scripts/finalize_v014_release.py
+          git add README.md CHANGELOG.md update.json manifest.json scripts/lint_zenpm_site.py zenpm-repo/manifest.json zenpm-repo/packages/metadata-scraper/versions.json
+          git commit -m "Finalize v0.1.4 release metadata"
+          git push origin HEAD:agent/v0.1.4-release-finalization
