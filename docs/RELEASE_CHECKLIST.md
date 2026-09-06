@@ -21,15 +21,16 @@ Use this checklist for every stable or prerelease publication.
 - [ ] Investigate every failed Action from the release candidate; do not silently ignore failures.
 - [ ] Update stale Action major versions when compatible.
 
-Expected durable workflows:
+Expected durable workflow:
 
 - `lua-checks.yml`
-- `zenpm-pages.yml`
+
+A Pages/ZenPM deployment workflow is optional and should only live on `main` after GitHub Pages has been enabled at repository-admin level. If `actions/configure-pages` fails with `Resource not accessible by integration`, remove/disable the workflow until that prerequisite is completed rather than accepting permanent red runs.
 
 ## After merge
 
 - [ ] Exact intended `main` commit passes `Lua checks`.
-- [ ] ZenPM Pages deploy is green when ZenPM/workflow changes are part of the release.
+- [ ] Any optional infrastructure workflow that remains on `main` is green or intentionally disabled with its prerequisite documented.
 - [ ] Download the release-candidate artifact produced from the exact green `main` commit.
 - [ ] Verify the ZIP checksum against its `.sha256` file.
 - [ ] Verify ZIP layout and top-level `metadata_scraper.koplugin/` structure.
@@ -40,7 +41,7 @@ Expected durable workflows:
 - [ ] Create GitHub Release from that tag.
 - [ ] Upload the exact CI-built ZIP.
 - [ ] Confirm GitHub-reported asset size/digest matches expected release metadata.
-- [ ] Confirm updater/ZenPM stable metadata points to the published stable asset.
+- [ ] Confirm updater/ZenPM stable metadata points to the published stable asset where applicable.
 - [ ] Confirm built-in updater sees the intended release channel/version.
 
 ## Post-release cleanup
