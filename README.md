@@ -65,7 +65,7 @@ Once GitHub Pages is enabled for this repository, add this **base URL** in **Zen
 
 Do not append `manifest.json`; ZenPM requests that file from the repository root itself. The previous `raw.githubusercontent.com` source is no longer recommended because the Kindle ZenPM source detector performs a direct web fetch and expects a normal static repository endpoint.
 
-The Pages catalog intentionally tracks only published stable releases. During v0.1.4 development it continues to advertise published v0.1.3 rather than an unreleased branch build. See [`docs/zenpm.md`](docs/zenpm.md) for the repository layout, Pages activation step, and release-maintenance process.
+The static ZenPM catalog tracks only published stable releases. Its repository metadata is prepared for the v0.1.4 stable release, while GitHub Pages deployment remains disabled until Pages is enabled once at repository-admin level. See [`docs/zenpm.md`](docs/zenpm.md) for the repository layout, activation prerequisite, and release-maintenance process.
 
 ## Installation
 
