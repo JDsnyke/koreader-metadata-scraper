@@ -75,4 +75,8 @@ function P.test()
     return true, "Reachable"
 end
 
+function P.reset_runtime_state()
+    cooldown_until = 0
+end
+
 return P

@@ -59,6 +59,25 @@ function M.confidence(score, reasons)
     return "Weak"
 end
 
+local AUTO_BLOCKING_REASONS = {
+    "ISBN conflict", "format conflict", "author conflict", "language conflict", "series conflict",
+}
+
+function M.auto_eligible(result, threshold)
+    if type(result) ~= "table" then return false end
+    local score = tonumber(result.score) or 0
+    threshold = tonumber(threshold) or 90
+    if score < threshold then return false end
+
+    local set = reason_set(result.match_reasons)
+    for _, reason in ipairs(AUTO_BLOCKING_REASONS) do
+        if set[reason] then return false end
+    end
+
+    local confidence = result.confidence or M.confidence(score, result.match_reasons)
+    return confidence ~= "Weak"
+end
+
 function M.score(query, r)
     query = type(query) == "table" and query or {}
     r = type(r) == "table" and r or {}

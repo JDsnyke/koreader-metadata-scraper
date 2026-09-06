@@ -323,7 +323,7 @@ Device gate before stable Release publication:
 - [x] Explicit positive/negative component structure — expedited to v0.1.4.
 - [x] Human-readable numeric breakdown in match preview/provenance — expedited to v0.1.4.
 - [ ] Ambiguous-title fixtures.
-- [ ] Hard conflicts always override misleading aggregate score/class.
+- [x] Hard conflicts always override misleading aggregate score/class for automatic batch eligibility; high-scoring conflicted results are counted as manual-review-required instead of auto-applied.
 
 ## D. Interactive batch review — deeper #14/#15
 

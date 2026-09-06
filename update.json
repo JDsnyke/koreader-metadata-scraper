@@ -23,16 +23,16 @@
     "_meta.lua": "9463ff5c8c17d64b8d5d7a841e2ba3beab8fbdf9fca556d1b559de968cd1877b",
     "lib/diagnostics.lua": "b7e96e3cc865a4f0c24723d119058cfb5ecd28836a2e0f7038a863839eaccf67",
     "lib/http.lua": "78b72b303578241b6db3524d4204d0e3c92aabcec0d0f118268f07af61d3846b",
-    "lib/matcher.lua": "dc2bc176503db6479c9ebf2f439cd6dd6e4ba8d56f15ff4e04e012ef2eda3dd7",
+    "lib/matcher.lua": "1536c361e32d7427bd884bd39443aff7d9dfe6f3d42ff47db1e8543ca54fbeb3",
     "lib/settings.lua": "f66d81ffb0aa262e381b351b669fb0531d6dbb61d52c95f868b67b7211c28d79",
     "lib/updater.lua": "3350a055facb623ceceaa5d62c7b5d9f2dcd020f7800859ec3ffbc13079baa56",
     "lib/util.lua": "f107a8cd620716a591a9b3011e9588bbee50e73c5bc8c9bedf9b723886a53310",
     "lib/version.lua": "fb0c4cf8dd358aca9173ee0d6c39332876de25607b451214b054dca865ee3e2f",
     "lib/writer.lua": "7f57d4996351333c7314a92a74d36564f16ff2886a2e82c8f334ed9e034ecf63",
-    "main.lua": "6c94124960eaea9d947dd0f472de1fa7b0268f6d2753c458988dd5d8fca41a3d",
-    "providers/amazon.lua": "f8b034f47e7c24cda2ac055834ef6564f0b207abfeff7edca26b8432da8453bb",
-    "providers/googlebooks.lua": "9c64dc550523d2805dc8f5ffb2224fefbade3211be33d5bd11a8610fc697f859",
-    "providers/hardcover.lua": "6242d1e2e46b6ac9c956bf97f3256f6f0ee5c6276baaa4a38ba9b13869cc053d",
-    "providers/openlibrary.lua": "539aa884c6ce168e57cf5db252e77c38d1615560e4112bd98500b12fd142e99f"
+    "main.lua": "1ef3be9250b138e40027edd04bbda575bf8bd744bd43221fc74dbf48a06c0fe3",
+    "providers/amazon.lua": "5ea36170f4f9245fc4a0e5178f135f4c87b656dc088bb108bd9c5b6c864b74ae",
+    "providers/googlebooks.lua": "0c3ddcfb3e1cfd8fb2c38ab129585e74d44de40c0a30ab4ab8b154312f730fe5",
+    "providers/hardcover.lua": "d6e904b3caa6e91ee4712dc13d54416aae42a57525236ac7cf4d1b6744f6effd",
+    "providers/openlibrary.lua": "83c1e6f6d8eee6c999dd0d1bc2ffb5e4edfcf613a0b5eb3a492e8012579aba7f"
   }
 }

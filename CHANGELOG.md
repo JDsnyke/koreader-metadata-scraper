@@ -6,6 +6,8 @@ All notable changes to Metadata Scraper for KOReader will be documented here.
 
 ### Additional stability and provider hardening
 
+- Prevent a high aggregate score from overriding hard ISBN/format/author/language/series conflicts during batch auto-apply; these are now explicitly counted as manual-review-required.
+- Clear provider-local cooldown/token runtime state when provider credentials are changed or reset, avoiding stale-account cooldowns until restart.
 - Close KOReader document handles even when metadata reads or effective-property expansion throws, preventing leaked handles during repeated/batch scans.
 - Reset-all now deletes both the current undo snapshot set and older multi-revision history snapshots.
 - Bump saved match provenance to schema v2 for the expanded v0.1.4 record.

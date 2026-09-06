@@ -165,6 +165,10 @@ query MetadataScraperAccountTest {
     return true, "Authentication OK"
 end
 
+function P.reset_runtime_state()
+    cooldown_until = 0
+end
+
 P._authorization_header = authorization_header
 P._normalize_results = normalize_results
 

@@ -165,4 +165,9 @@ function P.test(settings)
     return true, "API key accepted"
 end
 
+function P.reset_runtime_state()
+    cooldown_until = 0
+    backoff_step = 0
+end
+
 return P

@@ -628,7 +628,9 @@ function MetadataScraper:resetProviderSettings()
             self.settings.amazon_marketplace = DEFAULTS.amazon_marketplace
             self.settings.amazon_search_index = DEFAULTS.amazon_search_index
             self.settings.provider_health = {}
-            if PROVIDERS.amazon.reset_token_cache then PROVIDERS.amazon.reset_token_cache() end
+            for _, provider in pairs(PROVIDERS) do
+                if type(provider.reset_runtime_state) == "function" then provider.reset_runtime_state() end
+            end
             self:saveSettings()
             UIManager:show(InfoMessage:new{ text = _("Provider settings reset.") })
         end,
@@ -655,7 +657,9 @@ function MetadataScraper:resetAllSettings()
             end
             Diagnostics.clear()
             self.settings = clone_defaults()
-            if PROVIDERS.amazon.reset_token_cache then PROVIDERS.amazon.reset_token_cache() end
+            for _, provider in pairs(PROVIDERS) do
+                if type(provider.reset_runtime_state) == "function" then provider.reset_runtime_state() end
+            end
             self:saveSettings()
             local diagnostics_dir = DataStorage:getDataDir() .. "/cache/metadata_scraper"
             util.makePath(diagnostics_dir)
@@ -739,6 +743,7 @@ function MetadataScraper:editHardcover()
             { text = _("Save"), callback = function()
                 self.settings.hardcover_token = dlg:getFields()[1] or ""
                 self.settings.enabled.hardcover = U.nonempty(self.settings.hardcover_token)
+                if type(PROVIDERS.hardcover.reset_runtime_state) == "function" then PROVIDERS.hardcover.reset_runtime_state() end
                 self:saveSettings(); UIManager:close(dlg)
             end },
         }},
@@ -759,6 +764,7 @@ function MetadataScraper:editGoogle()
             { text = _("Save"), callback = function()
                 self.settings.google_api_key = dlg:getFields()[1] or ""
                 self.settings.enabled.google = U.nonempty(self.settings.google_api_key)
+                if type(PROVIDERS.google.reset_runtime_state) == "function" then PROVIDERS.google.reset_runtime_state() end
                 self:saveSettings(); UIManager:close(dlg)
             end },
         }},
@@ -790,7 +796,8 @@ function MetadataScraper:editAmazon()
                 self.settings.amazon_credential_version = credential_version
                 self.settings.amazon_partner_tag = f[4] or ""
                 self.settings.enabled.amazon = U.nonempty(f[1]) and U.nonempty(f[2]) and U.nonempty(f[4])
-                if PROVIDERS.amazon.reset_token_cache then PROVIDERS.amazon.reset_token_cache() end
+                if type(PROVIDERS.amazon.reset_runtime_state) == "function" then PROVIDERS.amazon.reset_runtime_state()
+                elseif PROVIDERS.amazon.reset_token_cache then PROVIDERS.amazon.reset_token_cache() end
                 self:saveSettings(); UIManager:close(dlg)
             end },
         }},
@@ -1682,8 +1689,8 @@ end
 function MetadataScraper:showBatchPlan(plan)
     if #plan.apply == 0 then
         UIManager:show(InfoMessage:new{
-            text = string.format(_("Batch discovery complete.\n\nReady to apply: 0\nLow/no match: %d\nAlready matched: %d\nSearch failures: %d\n\nNo metadata was changed."),
-                plan.skipped, plan.already_matched, plan.failed),
+            text = string.format(_("Batch discovery complete.\n\nReady to apply: 0\nManual review required: %d\nLow/no match: %d\nAlready matched: %d\nSearch failures: %d\n\nNo metadata was changed."),
+                plan.manual_review or 0, plan.skipped, plan.already_matched, plan.failed),
         })
         return
     end
@@ -1694,8 +1701,8 @@ function MetadataScraper:showBatchPlan(plan)
         title = _("Batch discovery complete"),
         title_align = "center",
         buttons = {
-            {{ text = string.format(_("Selected: %d of %d ready · Low/no match: %d · Already matched: %d · Search failures: %d"),
-                selected, #plan.apply, plan.skipped, plan.already_matched, plan.failed), align = "left", enabled = false }},
+            {{ text = string.format(_("Selected: %d of %d ready · Manual review: %d · Low/no match: %d · Already matched: %d · Search failures: %d"),
+                selected, #plan.apply, plan.manual_review or 0, plan.skipped, plan.already_matched, plan.failed), align = "left", enabled = false }},
             {{ text = _("Review proposed matches…"), align = "left", callback = function() UIManager:close(dialog); self:showBatchReview(plan) end }},
             {
                 { text = _("Cancel"), callback = function() UIManager:close(dialog) end },
@@ -1726,6 +1733,7 @@ function MetadataScraper:runBatch(files, count)
             skipped = 0,
             already_matched = 0,
             failed = 0,
+            manual_review = 0,
             total = count,
             threshold = threshold,
             options = batch_options,
@@ -1751,7 +1759,7 @@ function MetadataScraper:runBatch(files, count)
                 local results, errors, counts = self:searchProviders(q, { batch = true })
                 UIManager:close(busy)
                 local best = results and results[1]
-                if best and (best.score or 0) >= threshold then
+                if best and Matcher.auto_eligible(best, threshold) then
                     table.insert(plan.apply, {
                         file = file,
                         raw = raw,
@@ -1760,6 +1768,10 @@ function MetadataScraper:runBatch(files, count)
                         options = batch_options,
                         selected = true,
                     })
+                elseif best and (tonumber(best.score) or 0) >= threshold then
+                    -- High aggregate score with hard conflict evidence is deliberately
+                    -- held for manual review instead of being auto-applied.
+                    plan.manual_review = plan.manual_review + 1
                 elseif all_attempted_providers_failed(self:providerOrder(), errors or {}, counts or {}) then
                     plan.failed = plan.failed + 1
                 else
@@ -1791,8 +1803,8 @@ function MetadataScraper:applyBatchPlan(plan)
             end
         end
         UIManager:show(InfoMessage:new{
-            text = string.format(_("Batch complete.\nApplied: %d\nLow/no match: %d\nReview skipped: %d\nAlready matched: %d\nSearch failures: %d\nApply failures: %d"),
-                applied, plan.skipped or 0, review_skipped, plan.already_matched or 0, plan.failed or 0, failed),
+            text = string.format(_("Batch complete.\nApplied: %d\nManual review required: %d\nLow/no match: %d\nReview skipped: %d\nAlready matched: %d\nSearch failures: %d\nApply failures: %d"),
+                applied, plan.manual_review or 0, plan.skipped or 0, review_skipped, plan.already_matched or 0, plan.failed or 0, failed),
         })
     end)
 end

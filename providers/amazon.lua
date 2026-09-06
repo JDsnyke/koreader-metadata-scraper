@@ -244,5 +244,9 @@ function P.test(settings)
 end
 
 P.reset_token_cache = clear_token_cache
+function P.reset_runtime_state()
+    clear_token_cache()
+    cooldown_until = 0
+end
 
 return P

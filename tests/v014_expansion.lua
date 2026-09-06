@@ -178,5 +178,40 @@ check("support diagnostics include only bounded safe runtime metadata", function
     truthy(data:find("runtime.settings_file = self.settings_file", 1, true))
 end)
 
+
+check("automatic batch eligibility rejects hard conflicts even above threshold", function()
+    package.loaded["lib/matcher"] = nil
+    local Matcher = require("lib/matcher")
+    local query = { title="Shared Title", author="Correct Author", language="en", series="Saga", year=2020, media_kind="ebook" }
+    local result = { title="Shared Title", authors={"Correct Author"}, authors_text="Correct Author", language="fr", series="Saga", published_date="2020", media_kind="ebook" }
+    local score, reasons = Matcher.score(query, result)
+    result.score = score; result.match_reasons = reasons; result.confidence = Matcher.confidence(score, reasons)
+    truthy(score >= 90, "fixture must prove a misleading aggregate score can exceed default threshold")
+    eq(result.confidence, "Possible")
+    eq(Matcher.auto_eligible(result, 90), false)
+end)
+
+check("permissive threshold still allows clean conflict-free Possible matches", function()
+    package.loaded["lib/matcher"] = nil
+    local Matcher = require("lib/matcher")
+    eq(Matcher.auto_eligible({score=85, confidence="Possible", match_reasons={"title exact", "author similar"}}, 80), true)
+    eq(Matcher.auto_eligible({score=85, confidence="Possible", match_reasons={"title exact", "language conflict"}}, 80), false)
+end)
+
+check("batch discovery uses conflict-aware automatic eligibility", function()
+    local data = read_file("main.lua")
+    truthy(data:find("Matcher.auto_eligible(best, threshold)", 1, true))
+    truthy(data:find("plan.manual_review = plan.manual_review + 1", 1, true))
+    truthy(data:find("Manual review required", 1, true))
+end)
+
+check("credential changes clear stale provider runtime cooldown state", function()
+    local main = read_file("main.lua")
+    truthy(main:find("PROVIDERS.hardcover.reset_runtime_state", 1, true))
+    truthy(main:find("PROVIDERS.google.reset_runtime_state", 1, true))
+    truthy(main:find("PROVIDERS.amazon.reset_runtime_state", 1, true))
+    truthy(read_file("providers/openlibrary.lua"):find("function P.reset_runtime_state", 1, true))
+end)
+
 io.write(string.format("\n%d passed, %d failed\n", passed, failed))
 if failed > 0 then os.exit(1) end
